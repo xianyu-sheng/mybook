@@ -1,0 +1,71 @@
+# Dependencies, build output and installers
+node_modules/
+dist/
+build/
+release/
+coverage/
+*.tsbuildinfo
+*.AppImage
+*.deb
+*.dmg
+*.exe
+
+# Personal data, recordings, local audits and backups
+data/
+recordings/
+repository-cache/
+/artifacts/
+/test-data/
+/docs/reviews/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.flac
+*.wav
+*.mp3
+*.m4a
+*.webm
+*.bak
+
+# Personal resumes, interview materials and document exports
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+*.csv
+imports/
+exports/
+attachments/
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.cc-switch/
+.claude/
+.codex/
+.idea/
+.vscode/
+
+# Current install uses apps/desktop/package-lock.json.
+# Preserve the older pnpm bootstrap locally without publishing two lockfiles.
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
+# Runtime and OS files
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+*.log

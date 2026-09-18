@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "name": "小林 coding",
+      "base_url": "https://github.com/xiaolincoder/CS-Base",
+      "homepage": "https://xiaolincoding.com/",
+      "description": "计算机网络、操作系统、MySQL、Redis 与计算机基础",
+      "enabled": true
+    },
+    {
+      "name": "沉默王二 · 二哥的 Java 进阶之路",
+      "base_url": "https://github.com/itwanger/toBeBetterJavaer",
+      "homepage": "https://javabetter.cn/",
+      "description": "Java 语言、并发、JVM、框架及面试复习",
+      "enabled": true
+    },
+    {
+      "name": "JavaGuide",
+      "base_url": "https://github.com/Snailclimb/JavaGuide",
+      "homepage": "https://javaguide.cn/",
+      "description": "Java 核心、数据库、分布式与系统设计面试指南",
+      "enabled": true
+    }
+  ]
+}

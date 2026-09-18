@@ -1,0 +1,119 @@
+{
+  "name": "mybook",
+  "productName": "Mybook",
+  "private": true,
+  "version": "0.5.0",
+  "description": "本地优先的 AI 面试准备桌面应用：知识库、企业模拟面试、录音复盘与专项练习",
+  "author": {
+    "name": "xianyu-sheng",
+    "email": "xianyu-sheng@example.com"
+  },
+  "homepage": "https://github.com/xianyu-sheng/mybook",
+  "type": "module",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5173",
+    "dev:electron": "tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs && wait-on http://127.0.0.1:5173 && cross-env KNOWMIND_DEV_SERVER=http://127.0.0.1:5173 electron .",
+    "build": "vite build && tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs",
+    "package": "npm run build && electron-builder --linux AppImage deb",
+    "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.electron.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.0",
+    "@ai-sdk/openai": "^4.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.48",
+    "ai": "^7.0.0",
+    "better-sqlite3": "^11.9.0",
+    "cheerio": "^1.1.0",
+    "lucide-react": "^0.577.0",
+    "mammoth": "^1.9.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^9.1.0",
+    "react-router-dom": "^7.6.0",
+    "remark-gfm": "^4.0.1",
+    "smol-toml": "^1.8.0",
+    "uuid": "^10.0.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.4.0",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.25.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0",
+    "vitest": "^5.0.0",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.knowmind.app",
+    "productName": "Mybook",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "index.html",
+      "assets/icon.png",
+      "assets/speech/**/*"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "icon": "assets/icon.png",
+      "desktop": {
+        "Name": "Mybook",
+        "Name[zh_CN]": "Mybook",
+        "Comment": "AI 驱动的面试知识库",
+        "Comment[zh_CN]": "AI 驱动的面试知识库",
+        "Categories": "Office;Education;",
+        "StartupWMClass": "Mybook"
+      }
+    },
+    "deb": {
+      "packageName": "knowmind"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "assets/speech",
+        "to": "speech"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xianyu-sheng/mybook.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xianyu-sheng/mybook/issues"
+  }
+}
