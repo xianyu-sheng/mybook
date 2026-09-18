@@ -181,10 +181,6 @@
       ],
       "extraResources": [
         {
-          "from": "assets/speech",
-          "to": "speech"
-        },
-        {
           "from": "native/windows-audio/publish",
           "to": "windows-audio",
           "filter": [
