@@ -4,7 +4,7 @@
   <p><strong>把项目资料、每一次追问和每一场面试，变成下一次答得更好的准备。</strong></p>
   <p>本地优先的 AI 面试准备桌面应用</p>
   <p>
-    <img alt="版本 0.6.0" src="https://img.shields.io/badge/version-0.6.0-315ac5" />
+    <img alt="版本 0.6.1" src="https://img.shields.io/badge/version-0.6.1-315ac5" />
     <img alt="Electron 与 React" src="https://img.shields.io/badge/Electron%20%2B%20React-desktop-567789" />
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178c6" />
     <img alt="支持 Linux 与 Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-608a75" />
@@ -186,7 +186,7 @@ mybook/
 
 ## 当前状态与后续方向
 
-当前版本为 **0.6.0**。本版本加入 Windows NAudio/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音协议；Windows 实机设备捕获由发布流水线编译并打包原生 helper，实体耳机和长时间录音仍需在目标设备上验收。
+当前版本为 **0.6.1**。0.6 系列加入 Windows NAudio/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。0.6.1 收紧安装包文件白名单，排除源码、测试与原生构建中间产物，并在发布前自动检查包内容。测试覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音协议；Windows 原生 helper 由发布流水线编译、运行并检查打包结果，实体耳机和长时间录音仍需在目标设备上验收。
 
 以下工作仍在迭代：
 

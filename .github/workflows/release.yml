@@ -67,6 +67,10 @@ jobs:
         working-directory: ${{ env.DESKTOP_DIR }}
         run: npm run package:linux
 
+      - name: Verify Linux package contents
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm run verify:package -- linux
+
       - name: Create checksums
         working-directory: apps/desktop/release
         run: sha256sum *.AppImage *.deb > SHA256SUMS-linux.txt
@@ -131,6 +135,8 @@ jobs:
         working-directory: ${{ env.DESKTOP_DIR }}
         shell: pwsh
         run: |
+          npm run verify:package -- win32
+          if ($LASTEXITCODE -ne 0) { throw 'Windows package content verification failed' }
           $resources = 'release/win-unpacked/resources'
           $required = @(
             'speech/transcribe.py',
@@ -148,7 +154,7 @@ jobs:
         working-directory: ${{ env.DESKTOP_DIR }}
         shell: pwsh
         run: |
-          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
+          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' }
           if (-not $files) { throw 'No Windows release files were produced' }
           $lines = foreach ($file in $files) {
             $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
@@ -162,7 +168,7 @@ jobs:
           name: mybook-windows
           path: |
             apps/desktop/release/*.exe
-            apps/desktop/release/*.yml
+            apps/desktop/release/latest.yml
             apps/desktop/release/*.blockmap
             apps/desktop/release/SHA256SUMS-windows.txt
           if-no-files-found: error
