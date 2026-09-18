@@ -1,0 +1,178 @@
+name: Build and publish Mybook
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mybook-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24.x'
+  DESKTOP_DIR: apps/desktop
+
+jobs:
+  verify:
+    name: Typecheck and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm run typecheck
+
+      - name: Unit tests
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npx vitest run
+
+  build-linux:
+    name: Linux installers
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm ci
+
+      - name: Build Linux packages
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm run package:linux
+
+      - name: Create checksums
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: sha256sum release/*.AppImage release/*.deb > release/SHA256SUMS-linux.txt
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: mybook-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/SHA256SUMS-linux.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    name: Windows installer
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm ci
+
+      - name: Verify packaged FFmpeg capture devices
+        working-directory: ${{ env.DESKTOP_DIR }}
+        shell: pwsh
+        run: |
+          $ffmpeg = (node -p "require('ffmpeg-static')").Trim()
+          if (-not (Test-Path $ffmpeg)) { throw "ffmpeg-static binary was not installed: $ffmpeg" }
+          $devices = (& $ffmpeg -hide_banner -devices 2>&1 | Out-String)
+          if ($devices -notmatch '(?im)\bdshow\b') { throw 'Windows FFmpeg is missing DirectShow support' }
+          if ($devices -notmatch '(?im)\bwasapi\b') { throw 'Windows FFmpeg is missing WASAPI support' }
+          & $ffmpeg -hide_banner -version
+
+      - name: Build Windows installer
+        working-directory: ${{ env.DESKTOP_DIR }}
+        run: npm run package:windows
+
+      - name: Create checksums
+        working-directory: ${{ env.DESKTOP_DIR }}
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' }
+          if (-not $files) { throw 'No Windows release files were produced' }
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          Set-Content -Path release/SHA256SUMS-windows.txt -Value $lines -Encoding utf8NoBOM
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mybook-windows
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.yml
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/SHA256SUMS-windows.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mybook-*
+          path: release
+          merge-multiple: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          test "$RELEASE_TAG" = "v$version"
+
+      - name: Publish private release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Mybook $GITHUB_REF_NAME" \
+            --generate-notes

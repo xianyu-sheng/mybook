@@ -4,10 +4,10 @@
   <p><strong>把项目资料、每一次追问和每一场面试，变成下一次答得更好的准备。</strong></p>
   <p>本地优先的 AI 面试准备桌面应用</p>
   <p>
-    <img alt="版本 0.5.0" src="https://img.shields.io/badge/version-0.5.0-315ac5" />
+    <img alt="版本 0.6.0" src="https://img.shields.io/badge/version-0.6.0-315ac5" />
     <img alt="Electron 与 React" src="https://img.shields.io/badge/Electron%20%2B%20React-desktop-567789" />
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178c6" />
-    <img alt="主要支持 Linux" src="https://img.shields.io/badge/platform-Linux-608a75" />
+    <img alt="支持 Linux 与 Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-608a75" />
   </p>
 </div>
 
@@ -48,7 +48,7 @@ Mybook 面向准备技术面试的开发者。它将个人项目资料、计算�
 | 全局知识仓库 | 在应用中添加、同步、启停资料仓库，所有笔记本共享访问；通过配置包管理来源。 |
 | 企业模拟面试 | 填写公司、部门、岗位、JD 和标签，结合个人资料与公开面经逐题问答，保存点评、参考答案及复习知识。 |
 | 可复用目标岗位 | 保存企业与岗位信息，在后续模拟面试和录音中复用；历史面试保留当时的岗位信息。 |
-| 录音与本地转写 | Linux 下采集麦克风和系统输出，也可以导入音频；本地转写后校对文字、说话人并回听。 |
+| 录音与本地转写 | Linux 和 Windows 原生采集麦克风与系统输出（包括耳机），也可以导入音频；本地转写后校对文字、说话人并回听。 |
 | AI 面试复盘 | 从转写中整理问题、实际回答、缺陷、参考答案与追问建议；录音文档可参与全局知识检索。 |
 | 专项练习 | 从卡片、模拟面试或录音复盘选题，独立重答、逐项点评、保留历史，标记掌握或暂时归档。 |
 | 多模型降级 | 读取已配置的模型目录，优先使用选定模型，失败后尝试其他模型和服务；校验结构化结果及来源编号。 |
@@ -96,11 +96,17 @@ Mybook 采用 Electron + SQLite，在本机保存笔记本、知识卡片、对�
 
 当前模型配置读取 `~/.cc-switch/cc-switch.db`，支持代码中已适配的 Anthropic、OpenAI Chat Completions / Responses 兼容服务。实际可用模型取决于用户的服务配置、权限和额度，源码不绑定单个模型，也不附带 API Key。
 
-录音文档默认可在所有笔记本中检索，可以在录音详情关闭共享。戴耳机录制系统声音时，需要选择该耳机对应的输出监视器。详细步骤见 [录音与复盘说明](docs/interview-recording.md)。
+录音文档默认可在所有笔记本中检索，可以在录音详情关闭共享。戴耳机录制系统声音时，需要选择该耳机对应的输出监视器；Windows 使用 WASAPI 回环，Linux 使用 PulseAudio/PipeWire monitor。详细步骤见 [录音与复盘说明](docs/interview-recording.md)。
+
+## 下载与安装
+
+私有仓库的 [Releases](https://github.com/xianyu-sheng/mybook/releases) 提供每个版本的 Linux AppImage、Linux deb 和 Windows NSIS 安装器，并附 SHA256 校验文件。Windows 安装器允许选择安装目录，卸载时默认保留本地数据库、录音和转写模型。
+
+首次使用本地转写时，应用会在用户数据目录创建 Python 虚拟环境并下载 faster-whisper 与约 500 MB 的 Whisper small 模型。录音、数据库和模型不会打包进安装器，也不会进入 Git 仓库。
 
 ## 本地开发
 
-当前主要开发和验收平台为 Linux。建议使用 **Node.js 24 LTS**；项目声明的最低版本为 22.12。依赖以 `apps/desktop/package-lock.json` 为准。
+当前主要开发和验收平台为 Linux，发布由 GitHub Actions 同时在 Ubuntu 和 Windows runner 上构建。建议使用 **Node.js 24 LTS**；项目声明的最低版本为 22.12。依赖以 `apps/desktop/package-lock.json` 为准。
 
 ```bash
 git clone https://github.com/xianyu-sheng/mybook.git
@@ -145,6 +151,16 @@ npm run build
 npx electron-builder --linux AppImage deb --config.electronDist=node_modules/electron/dist
 ```
 
+Windows 打包（需要 Windows 主机或 GitHub Actions）：
+
+```powershell
+cd apps/desktop
+npm ci
+npm run package:windows
+```
+
+Windows 录音使用随应用发布的 FFmpeg：DirectShow 负责麦克风，WASAPI loopback 负责扬声器或耳机输出；发布包不会依赖用户另行安装 FFmpeg。Linux 的 PulseAudio/PipeWire 输入需要系统 FFmpeg 和 `pactl`，安装依赖见上方命令。
+
 数据库与用户资料不随代码发布。首次开发启动会创建本地资料目录；应用升级保留旧品牌的兼容路径及内部 `knowmind:*` IPC 名称，因此代码目录中仍可见 `knowmind`。
 
 ## 项目结构
@@ -170,7 +186,7 @@ mybook/
 
 ## 当前状态与后续方向
 
-当前版本为 **0.5.0**。该版本完成 179 项单元测试和 99 项安装版检查；另有 4 项历史 Electron ABI 测试跳过。覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写及异常恢复。AI 故障与结构校验使用模拟接口验证，本地 ASR 使用公开音频实测。
+当前版本为 **0.6.0**。本版本加入 Windows DirectShow/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音参数；Windows 实机设备捕获由发布流水线在 Windows runner 上做二进制能力检查，实体耳机和长时间录音仍需在目标设备上验收。
 
 以下工作仍在迭代：
 
@@ -179,10 +195,10 @@ mybook/
 - 更稳定的跨转写窗口题目识别，减少同一问题被重复计入。
 - 大规模资料检索、同义词召回和真实模型点评一致性评估。
 - 可编辑的练习要求版本、复习调度及完整备份恢复。
-- Windows / macOS 适配，以及实体耳机通话和干净环境安装验收。
+- macOS 原生双路录音适配，以及实体耳机通话和数小时连续录音验收。
 
 AI 生成的参考答案与评分需要结合原始资料核对；项目仓库归属不能直接证明个人贡献。GitHub 账号导入目前读取公开仓库目录，读取项目正文请导入具体文档或仓库 URL。
 
 ## 项目与许可
 
-由 [xianyu-sheng](https://github.com/xianyu-sheng) 维护。目前为私有开发仓库，尚未声明开源许可证。第三方依赖、语音模型及知识资料遵循各自的许可证。
+由 [xianyu-sheng](https://github.com/xianyu-sheng) 维护。目前为私有开发仓库，尚未声明开源许可证。第三方依赖、语音模型及知识资料遵循各自的许可证；Windows 安装器携带的 `ffmpeg-static` 为 GPL-3.0-or-later，相关许可证随依赖一起打包。

@@ -2,7 +2,7 @@
   "name": "mybook",
   "productName": "Mybook",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "本地优先的 AI 面试准备桌面应用：知识库、企业模拟面试、录音复盘与专项练习",
   "author": {
     "name": "xianyu-sheng",
@@ -16,7 +16,9 @@
     "dev:renderer": "vite --host 127.0.0.1 --port 5173",
     "dev:electron": "tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs && wait-on http://127.0.0.1:5173 && cross-env KNOWMIND_DEV_SERVER=http://127.0.0.1:5173 electron .",
     "build": "vite build && tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs",
-    "package": "npm run build && electron-builder --linux AppImage deb",
+    "package": "npm run build && electron-builder",
+    "package:linux": "npm run build && electron-builder --linux AppImage deb",
+    "package:windows": "npm run build && electron-builder --win nsis",
     "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.electron.json --noEmit"
   },
   "dependencies": {
@@ -26,6 +28,8 @@
     "ai": "^7.0.0",
     "better-sqlite3": "^11.9.0",
     "cheerio": "^1.1.0",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^4.10.38",
@@ -68,9 +72,19 @@
       "dist/**/*",
       "index.html",
       "assets/icon.png",
+      "assets/icon.ico",
       "assets/speech/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**",
+      "node_modules/better-sqlite3/**"
+    ],
     "linux": {
+      "files": [
+        "!node_modules/ffmpeg-static/**",
+        "!node_modules/ffprobe-static/**"
+      ],
       "target": [
         "AppImage",
         "deb"
@@ -97,10 +111,23 @@
       "icon": "assets/icon.png"
     },
     "win": {
+      "files": [
+        "!node_modules/ffprobe-static/bin/darwin/**",
+        "!node_modules/ffprobe-static/bin/linux/**"
+      ],
       "target": [
         "nsis"
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.ico",
+      "artifactName": "Mybook-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mybook",
+      "deleteAppDataOnUninstall": false
     },
     "extraResources": [
       {

@@ -6,50 +6,101 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { runProcess } from './audio.js'
 import type { AudioTrack, TranscriptSegment } from '../../src/types/recording.js'
 
-const root = path.join(homedir(), '.local', 'share', 'mybook', 'speech')
-const python = path.join(root, 'venv', 'bin', 'python')
-const modelDir = path.join(root, 'whisper-small')
+function speechRoots() {
+  const legacy = process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || homedir(), 'Mybook', 'speech')
+    : path.join(homedir(), '.local', 'share', 'mybook', 'speech')
+  try {
+    const preferred = path.join(app.getPath('userData'), 'speech')
+    return [...new Set([preferred, legacy])]
+  } catch { return [legacy] }
+}
+
+function hasSpeechModel(root: string) {
+  return ['model.bin', 'config.json', 'tokenizer.json', 'vocabulary.txt']
+    .every(file => existsSync(path.join(root, 'whisper-small', file)))
+}
+
+// 0.5 and earlier stored the optional ASR environment below the Linux data
+// directory. Keep using that installation when it exists so an upgrade does
+// not trigger another Python environment and ~500 MB model download.
+function speechRoot() {
+  const roots = speechRoots()
+  return roots.find(root => hasSpeechModel(root) && existsSync(path.join(root, 'venv')))
+    || roots.find(hasSpeechModel)
+    || roots.find(root => existsSync(path.join(root, 'venv')))
+    || roots[0]
+}
+
+function pythonPath() {
+  return path.join(speechRoot(), 'venv', process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'python.exe' : 'python')
+}
+
+function modelPath() { return path.join(speechRoot(), 'whisper-small') }
 const worker = () => app.isPackaged ? path.join(process.resourcesPath, 'speech', 'transcribe.py') : path.join(app.getAppPath(), 'assets', 'speech', 'transcribe.py')
 let runtimeReady = false
-export function speechReady() { return runtimeReady && ['model.bin', 'config.json', 'tokenizer.json', 'vocabulary.txt'].every(file => existsSync(path.join(modelDir, file))) }
+
+export function speechReady() {
+  return runtimeReady && ['model.bin', 'config.json', 'tokenizer.json', 'vocabulary.txt'].every(file => existsSync(path.join(modelPath(), file)))
+}
+
 export async function checkSpeech(signal?: AbortSignal) {
   try {
-    await runProcess(python, ['-c', 'import faster_whisper, ctranslate2, av'], { signal, timeout: 30000 })
+    await runProcess(pythonPath(), ['-c', 'import faster_whisper, ctranslate2, av'], { signal, timeout: 30000 })
     runtimeReady = existsSync(worker())
   } catch { runtimeReady = false }
   return speechReady()
 }
-export async function prepareSpeech(onProgress: (message: string) => void, signal: AbortSignal) {
-  await mkdir(root, { recursive: true })
-  const localUv = path.join(homedir(), '.local', 'bin', 'uv')
-  const uv = existsSync(localUv) ? localUv : 'uv'
-  onProgress('安装本地转写依赖...')
-  if (!existsSync(python)) {
-    try { await runProcess(uv, ['venv', '--python', '/usr/bin/python3', path.join(root, 'venv')], { signal }) }
-    catch (error) {
-      if (signal.aborted) throw error
-      await runProcess('python3', ['-m', 'venv', path.join(root, 'venv')], { signal })
+
+async function createVirtualenv(uv: string, python: string, venv: string, signal: AbortSignal) {
+  const bootstrap = process.platform === 'win32' ? 'python' : '/usr/bin/python3'
+  try {
+    await runProcess(uv, ['venv', '--python', bootstrap, venv], { signal })
+    return
+  } catch (error) {
+    if (signal.aborted) throw error
+    const candidates: Array<[string, string[]]> = process.platform === 'win32'
+      ? [['python', ['-m', 'venv', venv]], ['py', ['-3', '-m', 'venv', venv]]]
+      : [['python3', ['-m', 'venv', venv]]]
+    for (const [command, args] of candidates) {
+      try { await runProcess(command, args, { signal }); return } catch (fallbackError) { if (signal.aborted) throw fallbackError }
+    }
+    throw error
+  }
+}
+
+async function installWhisper(uv: string, python: string, signal: AbortSignal) {
+  for (const index of ['https://pypi.org/simple', 'https://mirrors.aliyun.com/pypi/simple']) {
+    try {
+      await runProcess(uv, ['pip', 'install', '--python', python, '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
+      return
+    } catch (error) {
+      signal.throwIfAborted()
+      try {
+        await runProcess(python, ['-m', 'ensurepip'], { signal })
+        await runProcess(python, ['-m', 'pip', 'install', '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
+        return
+      } catch (fallbackError) { if (signal.aborted) throw fallbackError }
     }
   }
+  throw new Error('转写依赖下载失败，已尝试两个下载源，请检查网络后重试')
+}
+
+export async function prepareSpeech(onProgress: (message: string) => void, signal: AbortSignal) {
+  const root = speechRoot()
+  const python = pythonPath()
+  const modelDir = modelPath()
+  const venv = path.join(root, 'venv')
+  await mkdir(root, { recursive: true })
+  const uvCandidates = process.platform === 'win32'
+    ? [path.join(process.env.LOCALAPPDATA || homedir(), 'uv', 'uv.exe'), path.join(homedir(), '.local', 'bin', 'uv.exe')]
+    : [path.join(homedir(), '.local', 'bin', 'uv')]
+  const uv = uvCandidates.find(existsSync) || 'uv'
+  onProgress('安装本地转写依赖...')
+  if (!existsSync(python)) await createVirtualenv(uv, python, venv, signal)
   await checkSpeech(signal)
   signal.throwIfAborted()
-  if (!runtimeReady) {
-    let installed = false
-    for (const index of ['https://pypi.org/simple', 'https://mirrors.aliyun.com/pypi/simple']) {
-      try {
-        await runProcess(uv, ['pip', 'install', '--python', python, '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
-        installed = true; break
-      } catch (error) {
-        signal.throwIfAborted()
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          await runProcess(python, ['-m', 'ensurepip'], { signal })
-          await runProcess(python, ['-m', 'pip', 'install', '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
-          installed = true; break
-        }
-      }
-    }
-    if (!installed) throw new Error('转写依赖下载失败，已尝试两个下载源，请检查网络后重试')
-  }
+  if (!runtimeReady) await installWhisper(uv, python, signal)
   onProgress('下载 Whisper small 多语言模型（首次约 500 MB）...')
   await runProcess(python, [worker(), '--prepare', '--model-dir', modelDir], { signal, onLine: line => {
     const item = JSON.parse(line); if (item.message) onProgress(item.message)
@@ -65,7 +116,7 @@ export async function transcribeAudio(directory: string, tracks: Array<{ kind: A
   await writeFile(manifest, JSON.stringify(tracks), 'utf8')
   const segments: TranscriptSegment[] = []
   let complete = false
-  await runProcess(python, [worker(), '--model-dir', modelDir, '--manifest', manifest, '--language', language], {
+  await runProcess(pythonPath(), [worker(), '--model-dir', modelPath(), '--manifest', manifest, '--language', language], {
     signal, timeout: 4 * 60 * 60 * 1000,
     onLine: line => {
       if (!line.trim()) return

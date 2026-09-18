@@ -3,7 +3,7 @@
 ## 使用
 
 1. 左侧进入「面试录音」，填写名称、企业、岗位、JD 和标签，关联包含项目文档的笔记本。
-2. 选择麦克风和「系统声音 / 耳机输出」。戴耳机时选择该耳机对应的输出监视器；更换设备后刷新列表。可单独录一路，也可导入已有音频。
+2. 选择麦克风和「系统声音 / 耳机输出」。戴耳机时选择该耳机对应的输出设备；更换设备后刷新列表。可单独录一路，也可导入已有音频。
 3. 点击「开始录音」，结束后「停止并保存」。在其他页面也能看到录音状态和停止按钮。
 4. 点击「本地转写」。首次使用需安装转写引擎并下载 Whisper small（模型约 500 MB）。支持中文、英语、自动识别。
 5. 试听并校对文字和说话人。编辑草稿可跨页面、跨录音暂存，保存后更新检索索引。重新转写成功会替换校对文本并清除旧复盘，操作前可导出 Markdown。
@@ -26,11 +26,12 @@
 - [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper)：本地 CPU int8 转写，使用其 Whisper small 多语言模型。
 - [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp)：调研过的本地转写替代方案，本版本未集成。
 - [Zackriya-Solutions/meetily](https://github.com/Zackriya-Solutions/meetily)：调研录音/转写工作流；未复制整个应用。Linux 音频问题参考 [#273](https://github.com/Zackriya-Solutions/meetily/issues/273) 和 [#701](https://github.com/Zackriya-Solutions/meetily/issues/701)。
-- [Electron desktopCapturer](https://www.electronjs.org/docs/latest/api/desktop-capturer)：考虑 Linux/PipeWire 的系统音频限制，本版本采用 FFmpeg 直接读取 PulseAudio/PipeWire 输入和输出监视器。
+- FFmpeg 的 [PulseAudio](https://ffmpeg.org/ffmpeg-devices.html#pulse)、[DirectShow](https://ffmpeg.org/ffmpeg-devices.html#dshow) 和 [WASAPI](https://ffmpeg.org/ffmpeg-devices.html#wasapi) 输入设备：Linux 读取 PulseAudio/PipeWire 输入和输出监视器，Windows 读取 DirectShow 麦克风和 WASAPI 输出回环。Windows 安装器内置静态 FFmpeg；Linux 使用发行版 FFmpeg，因为通用静态构建不包含 PulseAudio 输入设备。
 
 ## 当前边界
 
-- 原生双轨录音支持 Linux，依赖系统的 FFmpeg、pactl 和 PipeWire/PulseAudio。其他平台可导入已有录音，原生捕获尚未实现。
+- 原生双轨录音支持 Linux 和 Windows。Linux 设备枚举依赖 `pactl`、系统 FFmpeg 与正在运行的 PipeWire/PulseAudio；Windows 使用发布包内置的 FFmpeg、DirectShow 和 WASAPI。macOS 当前可导入已有录音，原生捕获尚未实现。
+- Windows 首次录音需要在「设置 → 隐私和安全性 → 麦克风」允许 Mybook（或桌面应用）访问麦克风；系统声音通过输出回环捕获，不需要关闭耳机。若耳机刚刚插拔，请刷新设备列表并重新选择它。
 - 「本人/对方」是按麦克风/系统音轨给的默认标签，不是声纹识别；多人或导入的混合音频需要校对说话人。
 - AI 评分和参考答案需要结合原始项目资料核实，不代表企业正式评价。
-- 本轮测试使用隔离配置和虚拟音频设备，验证双轨信号与对齐；未进行实体耳机通话或数小时连续录音测试。
+- 测试使用隔离配置和虚拟音频设备，验证双轨信号、设备参数与停止恢复；发布流水线会检查 Windows FFmpeg 同时提供 DirectShow/WASAPI。实体耳机通话和数小时连续录音仍需要在目标设备上验收。

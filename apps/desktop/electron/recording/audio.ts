@@ -5,10 +5,67 @@ import { constants } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { AudioDevice } from '../../src/types/recording.js'
+import { ffmpegCommand, ffprobeCommand } from './media.js'
 
 const exec = promisify(execFile)
+export type CaptureInput = { source: string; file: string; kind?: 'microphone' | 'system' | 'imported' }
+type ExecFailure = Error & { stdout?: string; stderr?: string }
+
+async function commandOutput(command: string, args: string[], timeout: number) {
+  try {
+    const result = await exec(command, args, { timeout, maxBuffer: 4 * 1024 * 1024 })
+    return `${result.stdout}\n${result.stderr}`
+  } catch (error) {
+    const failure = error as ExecFailure
+    return `${failure.stdout || ''}\n${failure.stderr || ''}`
+  }
+}
+
+function quotedAudioDevices(output: string) {
+  const names: string[] = []
+  for (const line of output.split(/\r?\n/)) {
+    if (!/\(audio\)/i.test(line) || /Alternative name/i.test(line)) continue
+    const match = /"([^"\r\n]+)"\s+\(audio\)/i.exec(line)
+    if (match?.[1] && !names.includes(match[1])) names.push(match[1])
+  }
+  return names
+}
+
+export function parseWindowsAudioDevices(dshowOutput: string, wasapiOutput: string): AudioDevice[] {
+  const microphones = quotedAudioDevices(dshowOutput)
+  const outputs = quotedAudioDevices(wasapiOutput)
+  const devices: AudioDevice[] = microphones.map((name, index) => ({
+    name, label: name, monitor: false, muted: false, isDefault: index === 0,
+  }))
+  // WASAPI loopback can capture a render endpoint even when it does not appear
+  // in FFmpeg's device listing. "default" lets Windows choose the current
+  // output and is also the most reliable fallback after a headset is changed.
+  const systemNames = outputs.length ? outputs : ['default']
+  for (const [index, name] of systemNames.entries()) devices.push({
+    name, label: name === 'default' ? '系统声音（WASAPI 默认输出回环）' : `系统声音 · ${name}`,
+    monitor: true, muted: false, isDefault: index === 0,
+  })
+  return devices
+}
+
+async function windowsAudioDevices(): Promise<{ devices: AudioDevice[]; error: string | null }> {
+  try {
+    await exec(ffmpegCommand(), ['-version'], { timeout: 8000 })
+    const [dshow, wasapi] = await Promise.all([
+      commandOutput(ffmpegCommand(), ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy'], 8000),
+      commandOutput(ffmpegCommand(), ['-hide_banner', '-list_devices', 'true', '-f', 'wasapi', '-i', 'dummy'], 8000),
+    ])
+    const devices = parseWindowsAudioDevices(dshow, wasapi)
+    if (!devices.length) throw new Error('没有发现 Windows 音频设备')
+    return { devices, error: null }
+  } catch {
+    return { devices: [], error: '无法枚举 Windows 音频设备。请确认应用有麦克风权限，并检查打包版自带的 FFmpeg 是否能访问 DirectShow/WASAPI。' }
+  }
+}
+
 export async function audioDevices(): Promise<{ devices: AudioDevice[]; error: string | null }> {
-  if (process.platform !== 'linux') return { devices: [], error: '当前版本的双路录音支持 Linux；其他平台可导入录音文件。' }
+  if (process.platform === 'win32') return windowsAudioDevices()
+  if (process.platform !== 'linux') return { devices: [], error: '当前版本的双路录音支持 Linux 和 Windows；其他平台可导入录音文件。' }
   try {
     const [info, rows] = await Promise.all([
       exec('pactl', ['--format=json', 'info'], { timeout: 5000 }),
@@ -20,20 +77,31 @@ export async function audioDevices(): Promise<{ devices: AudioDevice[]; error: s
       monitor: row.properties?.['device.class'] === 'monitor' || row.name.endsWith('.monitor'),
       muted: Boolean(row.mute), isDefault: row.name === defaults.default_source_name || row.name === `${defaults.default_sink_name}.monitor`,
     }))
-    await exec('ffmpeg', ['-version'], { timeout: 5000 })
+    await exec(ffmpegCommand(), ['-version'], { timeout: 5000 })
     return { devices, error: null }
   } catch { return { devices: [], error: '无法连接系统音频。请确认 FFmpeg、pactl 已安装，并且 PipeWire/PulseAudio 正在运行。' } }
 }
 
-export function captureArgs(inputs: Array<{ source: string; file: string }>) {
+export function captureArgsForPlatform(platform: NodeJS.Platform, inputs: CaptureInput[]) {
   const args = ['-hide_banner', '-loglevel', 'warning', '-y']
-  for (const input of inputs) args.push('-thread_queue_size', '2048', '-f', 'pulse', '-i', input.source)
+  for (const input of inputs) {
+    args.push('-thread_queue_size', '2048')
+    if (platform === 'linux') args.push('-f', 'pulse', '-i', input.source)
+    else if (platform === 'win32') {
+      if (input.kind === 'system') args.push('-f', 'wasapi', '-loopback', '1', '-i', input.source || 'default')
+      else args.push('-f', 'dshow', '-i', `audio=${input.source}`)
+    } else throw new Error('当前平台不支持原生双路录音')
+  }
   for (const [index, input] of inputs.entries()) args.push('-map', `${index}:a`, '-ac', '1', '-ar', '16000', '-c:a', 'flac', input.file)
   return args
 }
 
+export function captureArgs(inputs: CaptureInput[]) {
+  return captureArgsForPlatform(process.platform, inputs)
+}
+
 export async function duration(file: string) {
-  const result = await exec('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file], { timeout: 15000 })
+  const result = await exec(ffprobeCommand(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file], { timeout: 15000 })
   const seconds = Number(JSON.parse(result.stdout).format?.duration)
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('音频文件为空或无法读取')
   return seconds
@@ -52,7 +120,7 @@ export async function recoverDuration(file: string) {
   try {
     // A truncated final frame may produce a nonzero exit code while earlier
     // frames were recovered. The output probe is the acceptance check.
-    await runProcess('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', repaired], { timeout: 10 * 60 * 1000 }).catch(() => {})
+    await runProcess(ffmpegCommand(), ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', repaired], { timeout: 10 * 60 * 1000 }).catch(() => {})
     const seconds = await duration(repaired)
     await copyFile(file, original, constants.COPYFILE_EXCL)
     await rename(repaired, file)

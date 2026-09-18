@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { getDb } from '../db/connection.js'
 import type { AudioTrack, Recording, RecordingInput, RecordingState, TranscriptSegment } from '../../src/types/recording.js'
 import { audioDevices, captureArgs, duration, recoverDuration, runProcess } from './audio.js'
+import { ffmpegCommand } from './media.js'
 import { checkSpeech, prepareSpeech, speechReady, transcribeAudio } from './speech.js'
 import { analyzeRecording } from './analysis.js'
 import { indexRecording, recordingMarkdown } from './documents.js'
@@ -113,7 +114,7 @@ export async function startRecording(value: unknown) {
     const dir = recordingDirectory(id)
     await mkdir(dir, { recursive: true })
     const started = new Date().toISOString()
-    const child = spawn('ffmpeg', captureArgs(tracks.map(t => ({ source: t.source!, file: path.join(dir, `${t.kind}.flac`) }))), { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(ffmpegCommand(), captureArgs(tracks.map(t => ({ kind: t.kind, source: t.source!, file: path.join(dir, `${t.kind}.flac`) }))), { stdio: ['pipe', 'pipe', 'pipe'] })
     let stderr = '', processError = ''
     child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-2000) })
     child.on('error', error => { processError = error.message })
@@ -185,7 +186,7 @@ export async function importAudio(value: RecordingInput, file: string) {
       await mkdir(dir, { recursive: true })
       const destination = path.join(dir, 'imported.flac')
       try {
-        await runProcess('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', destination], { signal })
+        await runProcess(ffmpegCommand(), ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', destination], { signal })
         signal.throwIfAborted()
       } catch (error) {
         const recovered = await recoverDuration(destination).catch(() => 0)
