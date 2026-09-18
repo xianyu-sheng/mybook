@@ -17,10 +17,17 @@ describe('seekable recording playback', () => {
   it('serves the full file and advertises length and byte ranges', async () => {
     const r = await audioResponse(request(), file)
     expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('audio/flac')
     expect(r.headers.get('content-length')).toBe('256')
     expect(r.headers.get('accept-ranges')).toBe('bytes')
     expect(r.headers.get('cache-control')).toBe('no-store')
     expect(new Uint8Array(await r.arrayBuffer())).toEqual(bytes)
+  })
+  it('uses a WAV content type for Windows helper recordings', async () => {
+    const wav = path.join(dir, 'audio.wav')
+    await writeFile(wav, bytes)
+    const r = await audioResponse(request(), wav)
+    expect(r.headers.get('content-type')).toBe('audio/wav')
   })
   it.each([
     ['bytes=10-19', 10, 19], ['bytes=250-', 250, 255], ['bytes=-5', 251, 255],

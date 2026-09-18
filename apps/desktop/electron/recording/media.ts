@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 
@@ -21,12 +23,23 @@ function packageBinary(packageName: string, key?: string) {
 }
 
 export function ffmpegCommand() {
-  // The npm static build is intentionally used on Windows so the installer
-  // is self-contained. Its Linux build does not include the PulseAudio input
-  // device, so Linux must use the distribution FFmpeg for PipeWire/PulseAudio.
+  // Linux needs the distribution build because the npm static binary does not
+  // include the PulseAudio input device. Windows capture uses the native
+  // helper below; the static binary remains useful for imports and probing.
   return process.platform === 'win32' ? packageBinary('ffmpeg-static') || 'ffmpeg' : 'ffmpeg'
 }
 
 export function ffprobeCommand() {
   return process.platform === 'win32' ? packageBinary('ffprobe-static') || 'ffprobe' : 'ffprobe'
+}
+
+export function windowsAudioCommand() {
+  const name = process.platform === 'win32' ? 'mybook-windows-audio.exe' : 'mybook-windows-audio'
+  const candidates = [
+    path.join(process.resourcesPath || '', 'windows-audio', name),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../native/windows-audio/publish', name),
+    path.join(process.cwd(), 'native/windows-audio/publish', name),
+    path.join(process.cwd(), 'apps/desktop/native/windows-audio/publish', name),
+  ]
+  return candidates.find(existsSync) || candidates[0]
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureArgs, captureArgsForPlatform, parseWindowsAudioDevices, runProcess } from './audio.js'
+import { captureArgs, captureArgsForPlatform, parseWindowsAudioDevicesJson, runProcess } from './audio.js'
 
 describe('recording subprocesses', () => {
   it('maps each source to its own speech track without shell interpolation', () => {
@@ -8,24 +8,16 @@ describe('recording subprocesses', () => {
     expect(args).toContain('mic;literal')
     expect(args.slice(args.indexOf('-map'))).toEqual(['-map', '0:a', '-ac', '1', '-ar', '16000', '-c:a', 'flac', '/tmp/a.flac', '-map', '1:a', '-ac', '1', '-ar', '16000', '-c:a', 'flac', '/tmp/b.flac'])
   })
-  it('maps Windows microphone and WASAPI loopback inputs', () => {
-    expect(captureArgsForPlatform('win32', [
-      { kind: 'microphone', source: 'Microphone (USB Audio)', file: 'mic.flac' },
-      { kind: 'system', source: 'Speakers (USB Audio)', file: 'system.flac' },
-    ])).toEqual([
-      '-hide_banner', '-loglevel', 'warning', '-y', '-thread_queue_size', '2048', '-f', 'dshow', '-i', 'audio=Microphone (USB Audio)',
-      '-thread_queue_size', '2048', '-f', 'wasapi', '-loopback', '1', '-i', 'Speakers (USB Audio)',
-      '-map', '0:a', '-ac', '1', '-ar', '16000', '-c:a', 'flac', 'mic.flac',
-      '-map', '1:a', '-ac', '1', '-ar', '16000', '-c:a', 'flac', 'system.flac',
-    ])
+  it('does not route Windows capture through an incomplete FFmpeg device build', () => {
+    expect(() => captureArgsForPlatform('win32', [{ kind: 'microphone', source: 'id', file: 'mic.wav' }])).toThrow('原生音频助手')
   })
-  it('parses DirectShow microphones and WASAPI outputs without shell parsing', () => {
-    const dshow = '[dshow @ 0x1] "Microphone (USB Audio)" (audio)\n[dshow @ 0x1] "Camera" (video)\n[dshow @ 0x1] Alternative name "@device_cm_{synthetic}"'
-    const wasapi = '[wasapi @ 0x2] "Speakers (USB Audio)" (audio)\n[wasapi @ 0x2] "Headphones" (audio)'
-    expect(parseWindowsAudioDevices(dshow, wasapi)).toEqual([
-      { name: 'Microphone (USB Audio)', label: 'Microphone (USB Audio)', monitor: false, muted: false, isDefault: true },
-      { name: 'Speakers (USB Audio)', label: '系统声音 · Speakers (USB Audio)', monitor: true, muted: false, isDefault: true },
-      { name: 'Headphones', label: '系统声音 · Headphones', monitor: true, muted: false, isDefault: false },
+  it('parses native Windows endpoint JSON without shell parsing', () => {
+    expect(parseWindowsAudioDevicesJson(JSON.stringify({ devices: [
+      { name: '{mic}', label: 'Microphone (USB Audio)', monitor: false, muted: false, isDefault: true },
+      { name: '{speaker}', label: '系统声音 · Headphones', monitor: true, muted: false, isDefault: true },
+    ] }))).toEqual([
+      { name: '{mic}', label: 'Microphone (USB Audio)', monitor: false, muted: false, isDefault: true },
+      { name: '{speaker}', label: '系统声音 · Headphones', monitor: true, muted: false, isDefault: true },
     ])
   })
   it('handles stdout without a trailing newline', async () => {

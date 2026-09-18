@@ -14,11 +14,12 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 5173",
-    "dev:electron": "tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs && wait-on http://127.0.0.1:5173 && cross-env KNOWMIND_DEV_SERVER=http://127.0.0.1:5173 electron .",
-    "build": "vite build && tsc -p tsconfig.electron.json && cp electron/preload.cjs dist/electron/preload.cjs",
-    "package": "npm run build && electron-builder",
-    "package:linux": "npm run build && electron-builder --linux AppImage deb",
-    "package:windows": "npm run build && electron-builder --win nsis",
+    "dev:electron": "npm run build:platform && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs && wait-on http://127.0.0.1:5173 && cross-env KNOWMIND_DEV_SERVER=http://127.0.0.1:5173 electron .",
+    "build": "vite build && tsc -p tsconfig.electron.json && node scripts/copy-preload.mjs",
+    "package": "npm run build:platform && npm run build && electron-builder --publish never",
+    "package:linux": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "build:platform": "node scripts/build-platform.mjs",
+    "package:windows": "npm run build:platform && npm run build && electron-builder --win nsis --x64 --publish never",
     "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.electron.json --noEmit"
   },
   "dependencies": {
@@ -114,6 +115,19 @@
       "files": [
         "!node_modules/ffprobe-static/bin/darwin/**",
         "!node_modules/ffprobe-static/bin/linux/**"
+      ],
+      "extraResources": [
+        {
+          "from": "assets/speech",
+          "to": "speech"
+        },
+        {
+          "from": "native/windows-audio/publish",
+          "to": "windows-audio",
+          "filter": [
+            "mybook-windows-audio.exe"
+          ]
+        }
       ],
       "target": [
         "nsis"

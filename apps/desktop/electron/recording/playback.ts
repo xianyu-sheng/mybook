@@ -1,12 +1,14 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import path from 'node:path'
 
 // Chromium needs both 206 and Content-Range for seeking. Electron's file fetch
 // slices the bytes but reports 200, so forwarding its response loses seeking.
 export async function audioResponse(request: Request, file: string) {
   const { size } = await stat(file)
-  const headers = new Headers({ 'Content-Type': 'audio/flac', 'Accept-Ranges': 'bytes', 'Content-Length': String(size), 'Cache-Control': 'no-store' })
+  const contentType = path.extname(file).toLowerCase() === '.wav' ? 'audio/wav' : 'audio/flac'
+  const headers = new Headers({ 'Content-Type': contentType, 'Accept-Ranges': 'bytes', 'Content-Length': String(size), 'Cache-Control': 'no-store' })
   if (request.method === 'HEAD') return new Response(null, { headers })
   let start = 0, end = size - 1
   const range = request.headers.get('range')

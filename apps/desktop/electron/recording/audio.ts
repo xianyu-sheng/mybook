@@ -5,61 +5,30 @@ import { constants } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { AudioDevice } from '../../src/types/recording.js'
-import { ffmpegCommand, ffprobeCommand } from './media.js'
+import { ffmpegCommand, ffprobeCommand, windowsAudioCommand } from './media.js'
 
 const exec = promisify(execFile)
 export type CaptureInput = { source: string; file: string; kind?: 'microphone' | 'system' | 'imported' }
-type ExecFailure = Error & { stdout?: string; stderr?: string }
 
-async function commandOutput(command: string, args: string[], timeout: number) {
-  try {
-    const result = await exec(command, args, { timeout, maxBuffer: 4 * 1024 * 1024 })
-    return `${result.stdout}\n${result.stderr}`
-  } catch (error) {
-    const failure = error as ExecFailure
-    return `${failure.stdout || ''}\n${failure.stderr || ''}`
-  }
-}
-
-function quotedAudioDevices(output: string) {
-  const names: string[] = []
-  for (const line of output.split(/\r?\n/)) {
-    if (!/\(audio\)/i.test(line) || /Alternative name/i.test(line)) continue
-    const match = /"([^"\r\n]+)"\s+\(audio\)/i.exec(line)
-    if (match?.[1] && !names.includes(match[1])) names.push(match[1])
-  }
-  return names
-}
-
-export function parseWindowsAudioDevices(dshowOutput: string, wasapiOutput: string): AudioDevice[] {
-  const microphones = quotedAudioDevices(dshowOutput)
-  const outputs = quotedAudioDevices(wasapiOutput)
-  const devices: AudioDevice[] = microphones.map((name, index) => ({
-    name, label: name, monitor: false, muted: false, isDefault: index === 0,
+export function parseWindowsAudioDevicesJson(json: string): AudioDevice[] {
+  const parsed = JSON.parse(json) as { devices?: unknown }
+  if (!Array.isArray(parsed.devices)) throw new Error('Windows 音频助手返回了无效设备列表')
+  return parsed.devices.map((device: any): AudioDevice => ({
+    name: String(device.name), label: String(device.label), monitor: Boolean(device.monitor),
+    muted: Boolean(device.muted), isDefault: Boolean(device.isDefault),
   }))
-  // WASAPI loopback can capture a render endpoint even when it does not appear
-  // in FFmpeg's device listing. "default" lets Windows choose the current
-  // output and is also the most reliable fallback after a headset is changed.
-  const systemNames = outputs.length ? outputs : ['default']
-  for (const [index, name] of systemNames.entries()) devices.push({
-    name, label: name === 'default' ? '系统声音（WASAPI 默认输出回环）' : `系统声音 · ${name}`,
-    monitor: true, muted: false, isDefault: index === 0,
-  })
-  return devices
 }
 
 async function windowsAudioDevices(): Promise<{ devices: AudioDevice[]; error: string | null }> {
   try {
-    await exec(ffmpegCommand(), ['-version'], { timeout: 8000 })
-    const [dshow, wasapi] = await Promise.all([
-      commandOutput(ffmpegCommand(), ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy'], 8000),
-      commandOutput(ffmpegCommand(), ['-hide_banner', '-list_devices', 'true', '-f', 'wasapi', '-i', 'dummy'], 8000),
-    ])
-    const devices = parseWindowsAudioDevices(dshow, wasapi)
+    let json = ''
+    await runProcess(windowsAudioCommand(), ['list'], { timeout: 15000, onLine: line => { json += line } })
+    const devices = parseWindowsAudioDevicesJson(json)
     if (!devices.length) throw new Error('没有发现 Windows 音频设备')
     return { devices, error: null }
-  } catch {
-    return { devices: [], error: '无法枚举 Windows 音频设备。请确认应用有麦克风权限，并检查打包版自带的 FFmpeg 是否能访问 DirectShow/WASAPI。' }
+  } catch (error) {
+    const detail = error instanceof Error && error.message.includes('ENOENT') ? 'Windows 音频助手未安装' : 'Windows 音频助手无法访问设备'
+    return { devices: [], error: `${detail}。请重新安装应用，并在系统隐私设置中允许 Mybook 使用麦克风。` }
   }
 }
 
@@ -87,10 +56,7 @@ export function captureArgsForPlatform(platform: NodeJS.Platform, inputs: Captur
   for (const input of inputs) {
     args.push('-thread_queue_size', '2048')
     if (platform === 'linux') args.push('-f', 'pulse', '-i', input.source)
-    else if (platform === 'win32') {
-      if (input.kind === 'system') args.push('-f', 'wasapi', '-loopback', '1', '-i', input.source || 'default')
-      else args.push('-f', 'dshow', '-i', `audio=${input.source}`)
-    } else throw new Error('当前平台不支持原生双路录音')
+    else throw new Error('Windows 录音由原生音频助手负责；当前平台不支持 FFmpeg 双路录音')
   }
   for (const [index, input] of inputs.entries()) args.push('-map', `${index}:a`, '-ac', '1', '-ar', '16000', '-c:a', 'flac', input.file)
   return args
@@ -101,26 +67,29 @@ export function captureArgs(inputs: CaptureInput[]) {
 }
 
 export async function duration(file: string) {
-  const result = await exec(ffprobeCommand(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file], { timeout: 15000 })
+  const result = await exec(ffprobeCommand(), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', file], { timeout: 15000, windowsHide: true })
   const seconds = Number(JSON.parse(result.stdout).format?.duration)
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('音频文件为空或无法读取')
   return seconds
 }
 
-// A killed FLAC encoder cannot finalize STREAMINFO, even when its complete
-// frames are still decodable. Repair a copy and keep the original for recovery.
+// A killed encoder may leave a file whose header is not finalized. Repair a
+// copy and keep the original for recovery. The Windows helper writes WAV,
+// while the Linux capture path writes FLAC.
 export async function recoverDuration(file: string) {
   try { return await duration(file) } catch (error) {
     if (!(await stat(file).catch(() => null))?.size) throw error
   }
   const token = randomUUID()
   const parsed = path.parse(file)
-  const repaired = path.join(parsed.dir, `${parsed.name}.recovery-${token}.flac`)
-  const original = path.join(parsed.dir, `${parsed.name}.interrupted-${token}.flac`)
+  const extension = parsed.ext.toLowerCase() === '.wav' ? '.wav' : '.flac'
+  const repaired = path.join(parsed.dir, `${parsed.name}.recovery-${token}${extension}`)
+  const original = path.join(parsed.dir, `${parsed.name}.interrupted-${token}${extension}`)
+  const codec = extension === '.wav' ? 'pcm_s16le' : 'flac'
   try {
     // A truncated final frame may produce a nonzero exit code while earlier
     // frames were recovered. The output probe is the acceptance check.
-    await runProcess(ffmpegCommand(), ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'flac', repaired], { timeout: 10 * 60 * 1000 }).catch(() => {})
+    await runProcess(ffmpegCommand(), ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', codec, repaired], { timeout: 10 * 60 * 1000 }).catch(() => {})
     const seconds = await duration(repaired)
     await copyFile(file, original, constants.COPYFILE_EXCL)
     await rename(repaired, file)
@@ -133,7 +102,7 @@ export function runProcess(command: string, args: string[], options: {
 } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) return reject(options.signal.reason)
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     let output = '', stderr = '', pending = '', failure: unknown

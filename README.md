@@ -151,7 +151,7 @@ npm run build
 npx electron-builder --linux AppImage deb --config.electronDist=node_modules/electron/dist
 ```
 
-Windows 打包（需要 Windows 主机或 GitHub Actions）：
+Windows 打包（需要 Windows 主机与 .NET 8 SDK，GitHub Actions 自动准备）：
 
 ```powershell
 cd apps/desktop
@@ -159,7 +159,7 @@ npm ci
 npm run package:windows
 ```
 
-Windows 录音使用随应用发布的 FFmpeg：DirectShow 负责麦克风，WASAPI loopback 负责扬声器或耳机输出；发布包不会依赖用户另行安装 FFmpeg。Linux 的 PulseAudio/PipeWire 输入需要系统 FFmpeg 和 `pactl`，安装依赖见上方命令。
+Windows 录音使用随应用发布的 .NET/NAudio helper：WASAPI 负责麦克风和扬声器或耳机输出；安装包包含运行时，使用者无需另装 .NET 或 FFmpeg。随包附带的 FFmpeg/FFprobe 用于导入、转换与探测音频。Linux 的 PulseAudio/PipeWire 输入需要系统 FFmpeg 和 `pactl`，安装依赖见上方命令。
 
 数据库与用户资料不随代码发布。首次开发启动会创建本地资料目录；应用升级保留旧品牌的兼容路径及内部 `knowmind:*` IPC 名称，因此代码目录中仍可见 `knowmind`。
 
@@ -186,7 +186,7 @@ mybook/
 
 ## 当前状态与后续方向
 
-当前版本为 **0.6.0**。本版本加入 Windows DirectShow/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音参数；Windows 实机设备捕获由发布流水线在 Windows runner 上做二进制能力检查，实体耳机和长时间录音仍需在目标设备上验收。
+当前版本为 **0.6.0**。本版本加入 Windows NAudio/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音协议；Windows 实机设备捕获由发布流水线编译并打包原生 helper，实体耳机和长时间录音仍需在目标设备上验收。
 
 以下工作仍在迭代：
 

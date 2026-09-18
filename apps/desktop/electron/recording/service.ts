@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { getDb } from '../db/connection.js'
 import type { AudioTrack, Recording, RecordingInput, RecordingState, TranscriptSegment } from '../../src/types/recording.js'
 import { audioDevices, captureArgs, duration, recoverDuration, runProcess } from './audio.js'
-import { ffmpegCommand } from './media.js'
+import { ffmpegCommand, windowsAudioCommand } from './media.js'
 import { checkSpeech, prepareSpeech, speechReady, transcribeAudio } from './speech.js'
 import { analyzeRecording } from './analysis.js'
 import { indexRecording, recordingMarkdown } from './documents.js'
@@ -40,6 +40,10 @@ export async function initializeSpeech() { await checkSpeech(); notify() }
 
 export function recordingDirectory(id: string) {
   return path.join(app.getPath('userData'), 'recordings', z.string().uuid().parse(id))
+}
+function trackFilePath(directory: string, kind: AudioTrack) {
+  const names = process.platform === 'win32' ? [`${kind}.wav`, `${kind}.flac`] : [`${kind}.flac`, `${kind}.wav`]
+  return names.map(name => path.join(directory, name)).find(existsSync) || path.join(directory, names[0])
 }
 export function getRecording(id: string): Recording {
   const row = getDb().prepare('SELECT * FROM recording WHERE id=?').get(z.string().uuid().parse(id)) as any
@@ -113,9 +117,23 @@ export async function startRecording(value: unknown) {
     startingId = id
     const dir = recordingDirectory(id)
     await mkdir(dir, { recursive: true })
+    assertOpen()
     const started = new Date().toISOString()
-    const child = spawn(ffmpegCommand(), captureArgs(tracks.map(t => ({ kind: t.kind, source: t.source!, file: path.join(dir, `${t.kind}.flac`) }))), { stdio: ['pipe', 'pipe', 'pipe'] })
+    const files = tracks.map(track => ({ track, file: trackFilePath(dir, track.kind) }))
+    const child = process.platform === 'win32'
+      ? spawn(windowsAudioCommand(), ['capture', '--inputs', JSON.stringify(files.map(({ track, file }) => ({ source: track.source!, kind: track.kind, file })))], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      : spawn(ffmpegCommand(), captureArgs(files.map(({ track, file }) => ({ kind: track.kind, source: track.source!, file }))), { stdio: ['pipe', 'pipe', 'pipe'] })
     let stderr = '', processError = ''
+    let ready = process.platform !== 'win32'
+    let readyResolve!: () => void
+    const readySignal = new Promise<void>(resolve => { readyResolve = resolve })
+    let pendingOutput = ''
+    child.stdout.on('data', data => {
+      pendingOutput += data.toString()
+      const lines = pendingOutput.split(/\r?\n/)
+      pendingOutput = (lines.pop() || '').slice(-4096)
+      for (const line of lines) if (line.trim() === 'ready') { ready = true; readyResolve() }
+    })
     child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-2000) })
     child.on('error', error => { processError = error.message })
     child.stdin.on('error', () => {})
@@ -123,10 +141,10 @@ export async function startRecording(value: unknown) {
     const done = new Promise<void>(resolve => child.once('close', code => {
       void (async () => {
         const expected = active?.id === recordId && active.stopping
-        // Keep the lock until both FLAC headers, duration, document and index are saved.
+        // Keep the lock until audio headers, duration, document and index are saved.
         if (active?.id === recordId) { clearTimeout(active.timer); active.stopping = true; notify() }
         try {
-          const lengths = await Promise.allSettled(tracks.map(t => recoverDuration(path.join(dir, `${t.kind}.flac`))))
+          const lengths = await Promise.allSettled(tracks.map(t => recoverDuration(trackFilePath(dir, t.kind))))
           const seconds = Math.max(0, ...lengths.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
           const incomplete = lengths.some(r => r.status === 'rejected')
           const failure = processError || (!expected || code !== 0 || incomplete ? '录音意外中断或音轨不完整，已保留音频；请检查设备并试听。' : seconds ? null : '未录到有效音频，请检查录音设备。')
@@ -144,11 +162,31 @@ export async function startRecording(value: unknown) {
     }))
     active = { id, title: input.title, child, started, done, stopping: false, timer: setTimeout(() => { void stopRecording().catch(error => console.error('[Mybook recording] automatic stop failed', error)) }, 4 * 60 * 60 * 1000) }
     getDb().prepare("UPDATE recording SET status='recording',started_at=? WHERE id=?").run(started, id)
-    // Wait for an immediate device/open failure before reporting successful capture.
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (!active || active.stopping || processError) throw new Error(processError || '无法启动所选录音设备')
+    // The Windows helper emits ready only after both WASAPI clients are
+    // capturing. FFmpeg on Linux has no equivalent handshake, so retain the
+    // short open-failure grace period there.
+    if (process.platform === 'win32') {
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([readySignal, done, new Promise(resolve => { timeout = setTimeout(resolve, 15000) })])
+      } finally { clearTimeout(timeout) }
+    } else await new Promise(resolve => setTimeout(resolve, 700))
+    if (!active || active.stopping || processError || !ready) {
+      processError ||= !ready && active && !active.stopping ? '录音设备启动超时，请检查麦克风权限和所选设备。' : '无法启动所选录音设备'
+      throw new Error(processError)
+    }
     notify()
     return getRecording(id)
+  } catch (error) {
+    if (id) {
+      if (active?.id === id) await stopRecording()
+      commitRecording(id, () => {
+        getDb().prepare("UPDATE recording SET status=CASE WHEN duration>0 THEN 'recorded' ELSE 'error' END,error=?,updated_at=datetime('now') WHERE id=?")
+          .run(String(error instanceof Error ? error.message : error).slice(0, 2500), id)
+      })
+      await saveDocument(id)
+    }
+    throw error
   } finally { starting = false; startingId = null }
 }
 
@@ -224,7 +262,7 @@ export async function transcribeRecording(id: string, language: string) {
   await runJob(id, '加载本地转写模型', async signal => {
     getDb().prepare("UPDATE recording SET status='transcribing' WHERE id=?").run(id)
     const dir = recordingDirectory(id)
-    const segments = await transcribeAudio(dir, record.tracks.map(t => ({ kind: t.kind, path: path.join(dir, `${t.kind}.flac`) })), language, signal, progress)
+    const segments = await transcribeAudio(dir, record.tracks.map(t => ({ kind: t.kind, path: trackFilePath(dir, t.kind) })), language, signal, progress)
     signal.throwIfAborted()
     commitRecording(id, () => { getDb().prepare("UPDATE recording SET transcript_json=?,report_json=NULL,status='transcribed',updated_at=datetime('now') WHERE id=?").run(JSON.stringify(segments), id) })
     await saveDocument(id)
@@ -294,7 +332,7 @@ export async function recoverRecordings() {
   const interrupted = getDb().prepare("SELECT id FROM recording WHERE status IN ('recording','importing','transcribing','analyzing') OR (duration=0 AND status IN ('recorded','error'))").all() as { id: string }[]
   for (const { id } of interrupted) {
     const record = getRecording(id)
-    const lengths = await Promise.allSettled(record.tracks.map(t => recoverDuration(path.join(recordingDirectory(id), `${t.kind}.flac`))))
+    const lengths = await Promise.allSettled(record.tracks.map(t => recoverDuration(trackFilePath(recordingDirectory(id), t.kind))))
     const seconds = Math.max(record.duration, ...lengths.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
     commitRecording(id, () => { getDb().prepare("UPDATE recording SET status=?,duration=?,error=? WHERE id=?").run(record.report ? 'ready' : record.segments.length ? 'transcribed' : seconds ? 'recorded' : 'error', seconds,
       '上次处理被中断，原始音频已保留，请试听后重试。', id) })
@@ -304,7 +342,7 @@ export async function recoverRecordings() {
 
 export function audioPath(id: string, track: AudioTrack) {
   if (!getRecording(id).tracks.some(t => t.kind === track)) throw new Error('音轨不存在')
-  const file = path.join(recordingDirectory(id), `${track}.flac`)
+  const file = trackFilePath(recordingDirectory(id), track)
   if (!existsSync(file)) throw new Error('音频文件不存在')
   return file
 }
