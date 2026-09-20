@@ -54,4 +54,17 @@ describe('coding strategy service', () => {
       expect(service.getStrategy(strategy.id).problems.find(problem => problem.id === twoSum.id)?.sync[0].external_id).toBe('sub-1')
     } finally { vi.unstubAllGlobals() }
   })
+
+  it('imports only direct public problem URLs from research before planning', async () => {
+    const service = createCodingService(db)
+    const strategy = service.createStrategy(input('字节跳动'))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<rss><channel><item><title>字节 两数之和 面试题</title><link>https://leetcode.cn/problems/company-two-sum/</link><description>算法题线索</description></item></channel></rss>', { status: 200 })))
+    try {
+      await service.search(strategy.id)
+      const planned = service.plan(strategy.id)
+      const imported = planned.problems.find(problem => problem.problem.canonical_key === 'leetcode:company-two-sum')
+      expect(imported?.problem.title).toBe('字节 两数之和 面试题')
+      expect(imported?.problem.difficulty).toBe('unknown')
+    } finally { vi.unstubAllGlobals() }
+  })
 })

@@ -155,6 +155,17 @@ export function createCodingService(db: Database.Database) {
     const row = rowStrategy(id)
     try {
       const results = await searchCodingResearch({ company: row.company, department: row.department, role: row.role, jd: row.jd, sources: json(row.sources_json, DEFAULT_SOURCES) })
+      const insertProblem = db.prepare(`INSERT OR IGNORE INTO coding_problem(id,canonical_key,source,source_id,source_url,title,difficulty,tags_json,knowledge_json,statement,metadata_json)
+        VALUES(?,?,?,?,?,'', 'unknown','[]','[]',?,'{}')`)
+      // Only direct LeetCode problem paths become catalogue entries. Articles and forum pages stay research leads.
+      for (const item of results) {
+        const match = (() => { try { return new URL(item.url).pathname.match(/\/problems\/([a-z0-9-]+)\/?$/i) } catch { return null } })()
+        if (!match) continue
+        const slug = match[1].toLowerCase()
+        insertProblem.run(randomUUID(), `leetcode:${slug}`, item.source, slug, item.url, item.snippet.slice(0, 1800))
+        db.prepare('UPDATE coding_problem SET title=CASE WHEN title=\'\' THEN ? ELSE title END,metadata_json=? WHERE canonical_key=?')
+          .run(item.title || slug, JSON.stringify({ research_url: item.url, warning: item.warning }), `leetcode:${slug}`)
+      }
       db.prepare("UPDATE coding_strategy SET research_json=?,research_error=NULL,last_researched_at=datetime('now'),updated_at=datetime('now') WHERE id=?").run(JSON.stringify(results), id)
     } catch (error) {
       db.prepare("UPDATE coding_strategy SET research_error=?,updated_at=datetime('now') WHERE id=?").run(String(error instanceof Error ? error.message : error).slice(0, 2000), id)
