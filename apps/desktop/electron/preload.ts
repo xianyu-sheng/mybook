@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { InterviewInput } from '../src/types/interview.js'
 import type { RepositoryInput } from '../src/types/repository.js'
+import type { CodingAttemptInput, CodingStrategyInput, CodingStrategyStatus, CodingProblemStatus } from '../src/types/coding.js'
 
 /**
  * KnowMind API — 通过 contextBridge 暴露给 Renderer Process 的安全接口。
@@ -20,6 +21,21 @@ const knowmindApi = {
     retry: (id: string) => ipcRenderer.invoke('knowmind:practice:retry', id),
     setStatus: (id: string, status: string) => ipcRenderer.invoke('knowmind:practice:set-status', id, status),
     delete: (id: string) => ipcRenderer.invoke('knowmind:practice:delete', id),
+  },
+  coding: {
+    listStrategies: () => ipcRenderer.invoke('knowmind:coding:strategies:list'),
+    getStrategy: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:get', id),
+    createStrategy: (input: CodingStrategyInput) => ipcRenderer.invoke('knowmind:coding:strategies:create', input),
+    updateStrategy: (id: string, patch: Partial<CodingStrategyInput> & { status?: CodingStrategyStatus }) => ipcRenderer.invoke('knowmind:coding:strategies:update', id, patch),
+    deleteStrategy: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:delete', id),
+    search: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:search', id),
+    plan: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:plan', id),
+    problems: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:problems', id),
+    updateProblemStatus: (id: string, status: CodingProblemStatus) => ipcRenderer.invoke('knowmind:coding:problems:status', id, status),
+    saveAttempt: (input: CodingAttemptInput) => ipcRenderer.invoke('knowmind:coding:strategies:attempt', input),
+    reviewAttempt: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:review', id),
+    sync: (id: string, platform: 'leetcode' | 'nowcoder') => ipcRenderer.invoke('knowmind:coding:strategies:sync', id, platform),
+    openSource: (id: string, url: string) => ipcRenderer.invoke('knowmind:coding:open-source', id, url),
   },
   targets: {
     list: () => ipcRenderer.invoke('knowmind:targets:list'),

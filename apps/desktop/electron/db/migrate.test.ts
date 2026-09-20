@@ -8,8 +8,13 @@ let db: Database.Database
 beforeEach(() => {
   db = memoryDb()
   // Derive the old schema from production migrations, without copying their SQL.
-  // No v5-only data exists in this disposable database.
-  db.exec(`DROP TABLE practice_attempt;
+  // No v5/v6-only data exists in this disposable database.
+  db.exec(`DROP TABLE coding_sync_record;
+    DROP TABLE coding_attempt;
+    DROP TABLE coding_strategy_problem;
+    DROP TABLE coding_problem;
+    DROP TABLE coding_strategy;
+    DROP TABLE practice_attempt;
     DROP TABLE practice_item;
     DROP TABLE target_role;
     ALTER TABLE notebook DROP COLUMN archived_at;
@@ -22,14 +27,14 @@ beforeEach(() => {
 })
 afterEach(() => db.close())
 
-describe('production v4 to v5 migration', () => {
+describe('production v4 to v6 migration', () => {
   it('preserves every existing column across connected user data and keeps indexes/FKs healthy', () => {
     const baseline = columnSnapshot(db)
     expect(baseline.notebook.columns).not.toContain('archived_at')
     expect(baseline.card.columns).not.toContain('citations_json')
     runMigrations(db)
     expect(snapshotOriginalColumns(db, baseline)).toEqual(baseline)
-    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get()).toMatchObject({ version: 5 })
+    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get()).toMatchObject({ version: 6 })
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     expect(db.prepare('PRAGMA integrity_check').get()).toMatchObject({ integrity_check: 'ok' })
     expect(db.prepare("SELECT rowid FROM recording_search WHERE recording_search MATCH 'audiomigrationtoken'").all()).toHaveLength(1)
@@ -47,7 +52,7 @@ describe('production v4 to v5 migration', () => {
     const afterFirst = columnSnapshot(db)
     runMigrations(db)
     expect(columnSnapshot(db)).toEqual(afterFirst)
-    expect(db.prepare('SELECT COUNT(*) AS n FROM _schema_version WHERE version=5').get()).toMatchObject({ n: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM _schema_version WHERE version=6').get()).toMatchObject({ n: 1 })
   })
   it('rolls back every added column on a mid-migration failure and permits a clean retry', () => {
     const baseline = columnSnapshot(db)

@@ -13,6 +13,7 @@ import { recoverInterruptedSyncs, cancelAllSyncs } from './repository/repository
 import { registerRecordingIpc } from './ipc/recording.ipc.js'
 import { registerPracticeIpc } from './ipc/practice.ipc.js'
 import { registerTargetIpc } from './ipc/target.ipc.js'
+import { registerCodingIpc } from './ipc/coding.ipc.js'
 import { initializeSpeech, recoverRecordings, recordingInProgress, shutdownRecording } from './recording/service.js'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'mybook-audio', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }])
@@ -124,6 +125,7 @@ async function registerIpcHandlers() {
   registerRecordingIpc()
   registerPracticeIpc()
   registerTargetIpc()
+  registerCodingIpc()
 }
 
 if (primaryInstance) app.whenReady().then(async () => {

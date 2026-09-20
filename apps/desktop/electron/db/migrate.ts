@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { practiceMigration } from '../practice/schema.js'
 
-const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 const migrations: Record<number, string[]> = {
   1: [
@@ -202,6 +202,94 @@ const migrations: Record<number, string[]> = {
       created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
     ...practiceMigration
+  ],
+  6: [
+    `CREATE TABLE coding_strategy (
+      id TEXT PRIMARY KEY,
+      target_role_id TEXT REFERENCES target_role(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      company TEXT NOT NULL,
+      department TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL,
+      jd TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      sources_json TEXT NOT NULL DEFAULT '["nowcoder","xiaohongshu","codetop","leetcode","lingshen"]',
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft','active','completed','archived')),
+      research_json TEXT NOT NULL DEFAULT '[]',
+      research_error TEXT,
+      last_researched_at TEXT,
+      last_synced_at TEXT,
+      sync_json TEXT NOT NULL DEFAULT '{}',
+      sync_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX idx_coding_strategy_status ON coding_strategy(status, updated_at)`,
+    `CREATE TABLE coding_problem (
+      id TEXT PRIMARY KEY,
+      canonical_key TEXT NOT NULL UNIQUE,
+      source TEXT NOT NULL,
+      source_id TEXT,
+      source_url TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      difficulty TEXT NOT NULL DEFAULT 'medium' CHECK(difficulty IN ('easy','medium','hard','unknown')),
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      knowledge_json TEXT NOT NULL DEFAULT '[]',
+      statement TEXT NOT NULL DEFAULT '',
+      constraints TEXT NOT NULL DEFAULT '',
+      examples_json TEXT NOT NULL DEFAULT '[]',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX idx_coding_problem_source ON coding_problem(source, difficulty)`,
+    `CREATE TABLE coding_strategy_problem (
+      id TEXT PRIMARY KEY,
+      strategy_id TEXT NOT NULL REFERENCES coding_strategy(id) ON DELETE CASCADE,
+      problem_id TEXT NOT NULL REFERENCES coding_problem(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL,
+      phase TEXT NOT NULL DEFAULT 'pattern' CHECK(phase IN ('foundation','pattern','company','stretch')),
+      reason TEXT NOT NULL DEFAULT '',
+      prerequisites_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','learning','attempted','mastered','skipped')),
+      due_at TEXT,
+      last_attempted_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(strategy_id, problem_id)
+    )`,
+    `CREATE INDEX idx_coding_strategy_problem_order ON coding_strategy_problem(strategy_id, sort_order)`,
+    `CREATE TABLE coding_attempt (
+      id TEXT PRIMARY KEY,
+      strategy_problem_id TEXT NOT NULL REFERENCES coding_strategy_problem(id) ON DELETE CASCADE,
+      language TEXT NOT NULL DEFAULT 'text',
+      thought TEXT NOT NULL DEFAULT '',
+      code TEXT NOT NULL DEFAULT '',
+      time_complexity TEXT NOT NULL DEFAULT '',
+      space_complexity TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','reviewing','reviewed','error')),
+      review_json TEXT,
+      model_name TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX idx_coding_attempt_problem ON coding_attempt(strategy_problem_id, created_at)`,
+    `CREATE TABLE coding_sync_record (
+      id TEXT PRIMARY KEY,
+      strategy_id TEXT NOT NULL REFERENCES coding_strategy(id) ON DELETE CASCADE,
+      strategy_problem_id TEXT REFERENCES coding_strategy_problem(id) ON DELETE SET NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('leetcode','nowcoder')),
+      external_id TEXT NOT NULL,
+      external_title TEXT NOT NULL DEFAULT '',
+      external_status TEXT NOT NULL DEFAULT 'unknown',
+      external_url TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(strategy_id, platform, external_id)
+    )`,
+    `CREATE INDEX idx_coding_sync_strategy ON coding_sync_record(strategy_id, platform, synced_at)`
   ]
 }
 

@@ -4,6 +4,7 @@ import type { RepositoryApi } from './repository'
 import type { RecordingApi } from './recording'
 import type { PracticeApi } from './practice'
 import type { TargetApi } from './target'
+import type { CodingApi } from './coding'
 export interface Notebook {
   id: string
   title: string
@@ -198,6 +199,7 @@ export interface KnowMindApi {
   recordings: RecordingApi
   practice: PracticeApi
   targets: TargetApi
+  coding: CodingApi
 
   dialog: {
     openFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string | null>
