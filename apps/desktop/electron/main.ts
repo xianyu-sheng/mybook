@@ -36,11 +36,25 @@ if (!primaryInstance) app.quit()
 
 let mainWindow: BrowserWindow | null = null
 
+/**
+ * Desktop environments can restore a BrowserWindow's old position outside
+ * the current work area. Always bring the primary window back to a usable
+ * visible state when the app starts or a second launch is requested.
+ */
+function revealMainWindow() {
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  if (window.isMinimized()) window.restore()
+  if (!window.isMaximized()) {
+    window.center()
+    window.maximize()
+  }
+  if (!window.isVisible()) window.show()
+  window.focus()
+}
+
 app.on('second-instance', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  revealMainWindow()
 })
 
 export function getMainWindow(): BrowserWindow | null {
@@ -65,9 +79,10 @@ function createWindow() {
     show: false
   })
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
+  mainWindow.once('ready-to-show', revealMainWindow)
+  // If a renderer fails to emit ready-to-show (for example after a display
+  // hot-plug or a stale compositor state), do not leave the process hidden.
+  setTimeout(revealMainWindow, 3000)
 
   const devServer = process.env['KNOWMIND_DEV_SERVER']
   const rendererFile = path.join(__dirname, '..', 'renderer', 'index.html')
