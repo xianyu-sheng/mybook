@@ -95,6 +95,12 @@ function failure(error: any): { reason: string; scope?: 'credential' | 'service'
   const message = `${error?.message || ''} ${error?.responseBody || ''}`
   if (/content_filter|content_policy|safety_policy|内容审核|内容安全/i.test(message)) return { reason: '内容审核未通过', terminal: true }
   if (error?.statusCode === 401 || error?.statusCode === 403) return { reason: '凭据或权限不可用', scope: 'credential' }
+  // 402 is commonly returned by gateways for an account/model quota that is
+  // exhausted (for example `insufficient_user_quota`). Treat it as scoped to
+  // the current credential so another configured account can still be tried.
+  // Keeping the upstream response out of `reason` prevents API keys and raw
+  // provider details from leaking into the UI error.
+  if (Number(error?.statusCode) === 402) return { reason: '额度不足', scope: 'credential' }
   if (error?.statusCode === 429) return { reason: '限流或额度不足' }
   if (isModelUnavailable(error)) return { reason: '无可用渠道' }
   if (connectionUnavailable(error)) return { reason: '连接中断', scope: 'service' }

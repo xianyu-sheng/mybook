@@ -46,6 +46,21 @@ describe('generation routing', () => {
     expect((await generateTextWithFallback(model, def, opts)).usedModel).toBe('backup')
     expect(mocks.client).toHaveBeenCalledTimes(1)
   })
+  it('skips an exhausted credential while using another credential', async () => {
+    mocks.registry.mockReturnValue([def, { ...def, key: 'same-key', modelName: 'same-key' }, backup])
+    const quotaError = Object.assign(new Error('insufficient_user_quota: secret-A'), { statusCode: 402 })
+    mocks.generate.mockRejectedValueOnce(quotaError).mockResolvedValueOnce({ text: 'ok' })
+    expect((await generateTextWithFallback(model, def, opts)).usedModel).toBe('backup')
+    // The sibling sharing the exhausted credential is skipped.
+    expect(mocks.client).toHaveBeenCalledTimes(1)
+    expect(mocks.client).toHaveBeenCalledWith(backup)
+  })
+  it('reports quota exhaustion without exposing the upstream response', async () => {
+    const quotaError = Object.assign(new Error('insufficient_user_quota: secret-A'), { statusCode: 402 })
+    mocks.generate.mockRejectedValue(quotaError)
+    await expect(generateTextWithFallback(model, def, opts)).rejects.toThrow('额度不足')
+    await expect(generateTextWithFallback(model, def, opts)).rejects.not.toThrow('secret-A')
+  })
   it('switches after timeout even if the SDK ignores abort', async () => {
     mocks.generate.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValueOnce({ text: 'ok' })
     const progress = vi.fn()
