@@ -67,4 +67,29 @@ describe('coding strategy service', () => {
       expect(imported?.problem.difficulty).toBe('unknown')
     } finally { vi.unstubAllGlobals() }
   })
+
+  it('appends newly researched problems and preserves existing progress', async () => {
+    const service = createCodingService(db)
+    const strategy = service.createStrategy(input('字节跳动'))
+    let slug = 'company-two-sum'
+    vi.stubGlobal('fetch', vi.fn(async (request: RequestInfo | URL) => {
+      const url = String(request)
+      if (url.includes('cn.bing.com/search')) {
+        return new Response(`<rss><channel><item><title>字节公开题源 ${slug}</title><link>https://leetcode.cn/problems/${slug}/</link><description>算法题线索</description></item></channel></rss>`, { status: 200 })
+      }
+      return new Response('', { status: 200 })
+    }))
+    try {
+      const first = service.plan((await service.search(strategy.id)).id)
+      const firstProblem = first.problems[0]
+      service.updateProblemStatus(firstProblem.id, 'mastered')
+      const firstCount = first.problems.length
+      slug = 'company-three-sum'
+      const second = service.plan((await service.search(strategy.id)).id)
+      expect(second.problems.length).toBeGreaterThan(firstCount)
+      expect(second.research.some(item => item.url.endsWith('/company-two-sum/'))).toBe(true)
+      expect(second.research.some(item => item.url.endsWith('/company-three-sum/'))).toBe(true)
+      expect(second.problems.find(problem => problem.problem_id === firstProblem.problem_id)?.status).toBe('mastered')
+    } finally { vi.unstubAllGlobals() }
+  })
 })

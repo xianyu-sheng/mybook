@@ -151,22 +151,63 @@ export function createCodingService(db: Database.Database) {
   }
   function deleteStrategy(id: string): void { rowStrategy(id); db.prepare('DELETE FROM coding_strategy WHERE id=?').run(id) }
 
+  function mergeDuplicateProblems(sourceUrl: string): Row | undefined {
+    const rows = db.prepare('SELECT * FROM coding_problem WHERE source_url=? ORDER BY rowid').all(sourceUrl) as Row[]
+    if (rows.length <= 1) return rows[0]
+    const builtinKeys = new Set(BUILTIN_PROBLEMS.map(problem => problem.canonical_key))
+    const keep = rows.find(problem => builtinKeys.has(problem.canonical_key)) || rows[0]
+    for (const duplicate of rows) {
+      if (duplicate.id === keep.id) continue
+      const relations = db.prepare('SELECT * FROM coding_strategy_problem WHERE problem_id=?').all(duplicate.id) as Row[]
+      for (const relation of relations) {
+        const existing = db.prepare('SELECT id FROM coding_strategy_problem WHERE strategy_id=? AND problem_id=?').get(relation.strategy_id, keep.id) as { id: string } | undefined
+        if (existing) {
+          db.prepare('UPDATE coding_attempt SET strategy_problem_id=? WHERE strategy_problem_id=?').run(existing.id, relation.id)
+          db.prepare('UPDATE coding_sync_record SET strategy_problem_id=? WHERE strategy_problem_id=?').run(existing.id, relation.id)
+          db.prepare('DELETE FROM coding_strategy_problem WHERE id=?').run(relation.id)
+        } else {
+          db.prepare('UPDATE coding_strategy_problem SET problem_id=? WHERE id=?').run(keep.id, relation.id)
+        }
+      }
+      db.prepare('DELETE FROM coding_problem WHERE id=?').run(duplicate.id)
+    }
+    return keep
+  }
+
   async function search(id: string): Promise<CodingStrategy> {
     const row = rowStrategy(id)
     try {
+      // Seed first so a live result for an existing offline problem reuses its
+      // canonical row instead of creating a second copy with the same URL.
+      ensureBuiltinProblems()
       const results = await searchCodingResearch({ company: row.company, department: row.department, role: row.role, jd: row.jd, sources: json(row.sources_json, DEFAULT_SOURCES) })
       const insertProblem = db.prepare(`INSERT OR IGNORE INTO coding_problem(id,canonical_key,source,source_id,source_url,title,difficulty,tags_json,knowledge_json,statement,metadata_json)
         VALUES(?,?,?,?,?,'', 'unknown','[]','[]',?,'{}')`)
-      // Only direct LeetCode problem paths become catalogue entries. Articles and forum pages stay research leads.
+      // Only direct problem paths become catalogue entries. Articles, API pages and
+      // interview discussions remain research leads that the user can open.
       for (const item of results) {
         const match = (() => { try { return new URL(item.url).pathname.match(/\/problems\/([a-z0-9-]+)\/?$/i) } catch { return null } })()
         if (!match) continue
         const slug = match[1].toLowerCase()
-        insertProblem.run(randomUUID(), `leetcode:${slug}`, item.source, slug, item.url, item.snippet.slice(0, 1800))
-        db.prepare('UPDATE coding_problem SET title=CASE WHEN title=\'\' THEN ? ELSE title END,metadata_json=? WHERE canonical_key=?')
-          .run(item.title || slug, JSON.stringify({ research_url: item.url, warning: item.warning }), `leetcode:${slug}`)
+        const existing = mergeDuplicateProblems(item.url) || db.prepare('SELECT * FROM coding_problem WHERE source_url=?').get(item.url) as Row | undefined
+        const canonicalKey = existing?.canonical_key || `leetcode:${slug}`
+        const metadata = { research_url: item.url, warning: item.warning, research_source: item.source, source_id: item.problem?.source_id || slug }
+        insertProblem.run(randomUUID(), canonicalKey, item.source, slug, item.url, item.problem?.statement || item.snippet.slice(0, 1800))
+        db.prepare(`UPDATE coding_problem SET
+          title=CASE WHEN title='' THEN ? ELSE title END,
+          difficulty=CASE WHEN difficulty='unknown' AND ? IN ('easy','medium','hard') THEN ? ELSE difficulty END,
+          tags_json=CASE WHEN tags_json='[]' AND ? != '[]' THEN ? ELSE tags_json END,
+          knowledge_json=CASE WHEN knowledge_json='[]' AND ? != '[]' THEN ? ELSE knowledge_json END,
+          statement=CASE WHEN statement='' THEN ? ELSE statement END,
+          metadata_json=?,updated_at=datetime('now') WHERE canonical_key=?`)
+          .run(item.title || slug, item.problem?.difficulty || 'unknown', item.problem?.difficulty || 'unknown', JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.knowledge || []), JSON.stringify(item.problem?.knowledge || []), item.problem?.statement || item.snippet.slice(0, 1800), JSON.stringify(metadata), canonicalKey)
       }
-      db.prepare("UPDATE coding_strategy SET research_json=?,research_error=NULL,last_researched_at=datetime('now'),updated_at=datetime('now') WHERE id=?").run(JSON.stringify(results), id)
+      // Research is an append-only snapshot per strategy. Re-running a strategy
+      // refreshes existing URLs and adds new URLs without erasing old leads.
+      const previous = json<CodingResearchItem[]>(row.research_json, [])
+      const merged = new Map<string, CodingResearchItem>(previous.map(result => [result.url, result]))
+      for (const result of results) merged.set(result.url, result)
+      db.prepare("UPDATE coding_strategy SET research_json=?,research_error=NULL,last_researched_at=datetime('now'),updated_at=datetime('now') WHERE id=?").run(JSON.stringify([...merged.values()].slice(-500)), id)
     } catch (error) {
       db.prepare("UPDATE coding_strategy SET research_error=?,updated_at=datetime('now') WHERE id=?").run(String(error instanceof Error ? error.message : error).slice(0, 2000), id)
     }
@@ -184,15 +225,23 @@ export function createCodingService(db: Database.Database) {
     const row = rowStrategy(id)
     ensureBuiltinProblems()
     const terms = skillTerms(row.jd).map(term => term.toLowerCase())
-    const problems = db.prepare('SELECT * FROM coding_problem ORDER BY rowid').all() as Row[]
+    const sourceResults = json<CodingResearchItem[]>(row.research_json, [])
+    const researchUrls = new Set(sourceResults.map(result => result.url))
+    const builtinKeys = new Set(BUILTIN_PROBLEMS.map(problem => problem.canonical_key))
+    const existingProblemIds = new Set((db.prepare('SELECT problem_id FROM coding_strategy_problem WHERE strategy_id=?').all(id) as Row[]).map(problem => String(problem.problem_id)))
+    // A strategy sees the common offline foundation plus the direct problems
+    // discovered for this strategy. Problems imported by another strategy do not
+    // leak into it, while already planned rows remain available for append-only
+    // updates and progress preservation.
+    const allProblems = db.prepare('SELECT * FROM coding_problem ORDER BY rowid').all() as Row[]
+    const problems = allProblems.filter(problem => builtinKeys.has(problem.canonical_key) || existingProblemIds.has(String(problem.id)) || researchUrls.has(String(problem.source_url)))
     const scored = problems.map(problem => {
       const tags = json<string[]>(problem.tags_json, [])
       const knowledge = json<string[]>(problem.knowledge_json, [])
       const matches = [...tags, ...knowledge].filter(tag => terms.some(term => tag.toLowerCase().includes(term) || term.includes(tag.toLowerCase())))
       const difficulty = DIFFICULTY_ORDER[problem.difficulty] ?? 1
       const phaseName = difficulty === 0 ? 'foundation' : difficulty === 1 ? 'pattern' : 'stretch'
-      const sourceResults = json<CodingResearchItem[]>(row.research_json, [])
-      const sourceMatch = sourceResults.some(item => item.url.includes(problem.source_url.split('/problems/')[1]?.split('/')[0] || '__none__'))
+      const sourceMatch = sourceResults.some(item => item.url === problem.source_url)
       const reason = matches.length ? `覆盖岗位关键词：${[...new Set(matches)].slice(0, 3).join('、')}；先掌握该模式再进入更复杂变体。` : `${phaseName === 'foundation' ? '先建立基础模式' : phaseName === 'pattern' ? '练习高频解题模式' : '作为进阶挑战'}；题源仅作公开参考。`
       return { problem, matches, difficulty, phase: sourceMatch ? 'company' : phaseName, reason, sourceMatch }
     }).sort((a, b) => Number(b.sourceMatch) - Number(a.sourceMatch) || b.matches.length - a.matches.length || a.difficulty - b.difficulty || String(a.problem.title).localeCompare(String(b.problem.title), 'zh-CN'))

@@ -12,6 +12,14 @@ export interface CodingResearchItem {
   snippet: string
   retrieved_at: string
   warning?: string
+  /** Structured metadata is present for direct problem links from CodeTop/LeetCode. */
+  problem?: {
+    source_id?: string
+    difficulty?: CodingProblemDifficulty
+    tags?: string[]
+    knowledge?: string[]
+    statement?: string
+  }
 }
 
 export interface CodingStrategyInput {
