@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { InterviewInput } from '../src/types/interview.js'
 import type { RepositoryInput } from '../src/types/repository.js'
-import type { CodingAttemptInput, CodingStrategyInput, CodingStrategyStatus, CodingProblemStatus } from '../src/types/coding.js'
+import type { CodingAttemptInput, CodingRunInput, CodingStrategyInput, CodingStrategyStatus, CodingProblemStatus } from '../src/types/coding.js'
 
 /**
  * KnowMind API — 通过 contextBridge 暴露给 Renderer Process 的安全接口。
@@ -33,6 +33,7 @@ const knowmindApi = {
     problems: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:problems', id),
     updateProblemStatus: (id: string, status: CodingProblemStatus) => ipcRenderer.invoke('knowmind:coding:problems:status', id, status),
     saveAttempt: (input: CodingAttemptInput) => ipcRenderer.invoke('knowmind:coding:strategies:attempt', input),
+    runCode: (input: CodingRunInput) => ipcRenderer.invoke('knowmind:coding:run', input),
     reviewAttempt: (id: string) => ipcRenderer.invoke('knowmind:coding:strategies:review', id),
     sync: (id: string, platform: 'leetcode' | 'nowcoder') => ipcRenderer.invoke('knowmind:coding:strategies:sync', id, platform),
     openSource: (id: string, url: string) => ipcRenderer.invoke('knowmind:coding:open-source', id, url),
@@ -180,6 +181,7 @@ const knowmindApi = {
     get: (id: string) => ipcRenderer.invoke('knowmind:interviews:get', id),
     create: (notebookId: string, input: InterviewInput) => ipcRenderer.invoke('knowmind:interviews:create', notebookId, input),
     update: (id: string, patch: { title: string; tags: string[] }) => ipcRenderer.invoke('knowmind:interviews:update', id, patch),
+    delete: (id: string) => ipcRenderer.invoke('knowmind:interviews:delete', id),
     research: (id: string) => ipcRenderer.invoke('knowmind:interviews:research', id),
     start: (id: string) => ipcRenderer.invoke('knowmind:interviews:start', id),
     answer: (id: string, turnId: string, answer: string) => ipcRenderer.invoke('knowmind:interviews:answer', id, turnId, answer),

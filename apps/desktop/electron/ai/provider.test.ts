@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { configuredFallbacks, resolveModelDefinition, type ModelDef } from './provider.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { clearLiveModelCatalog, configuredFallbacks, getCachedAvailableModels, refreshModelCatalog, resolveModelDefinition, type ModelDef } from './provider.js'
 
 const selected: ModelDef = { key: 'selected', name: 'Configured service', provider: 'openai', modelName: 'model-a',
   apiKey: 'fixture', baseURL: 'https://example.test', appType: 'codex', isCCSwitchActive: false, fallbackModels: [], wireApi: 'responses' }
@@ -43,5 +43,48 @@ describe('complete configured registry', () => {
   })
   it('does not guess models for invalid or empty configs', () => {
     for (const config of ['invalid', '{}', '{"auth":{"OPENAI_API_KEY":"key"}}']) expect(modelsFromProvider({ id: 'empty', app_type: 'codex', name: '', settings_config: config })).toEqual([])
+  })
+})
+
+describe('live model catalog', () => {
+  afterEach(() => {
+    clearLiveModelCatalog()
+    vi.unstubAllGlobals()
+  })
+
+  const response = (status: number, body: unknown) => ({
+    status,
+    ok: status >= 200 && status < 300,
+    text: async () => JSON.stringify(body),
+  })
+
+  it('filters removed model names and does not reintroduce them as fallbacks', async () => {
+    const configured = { ...selected, fallbackModels: ['model-old'] }
+    const stale = { ...selected, key: 'stale', modelName: 'model-old', fallbackModels: [] }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, { data: [{ id: 'model-a' }, { id: 'model-new' }] })))
+    await refreshModelCatalog([configured, stale], true)
+    const available = getCachedAvailableModels([configured, stale])
+    expect(available.map(model => model.modelName)).toEqual(['model-a', 'model-new'])
+    expect(available[0].fallbackModels).not.toContain('model-old')
+  })
+
+  it('keeps static models when a compatible endpoint has no catalog route', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(404, { error: 'not implemented' })))
+    await refreshModelCatalog([selected], true)
+    expect(getCachedAvailableModels([selected])).toEqual([selected])
+  })
+
+  it('removes a route after an explicit authentication failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(403, { error: 'forbidden' })))
+    await refreshModelCatalog([selected], true)
+    expect(getCachedAvailableModels([selected])).toEqual([])
+  })
+
+  it('does not probe the same route again within the cache window', async () => {
+    const fetch = vi.fn().mockResolvedValue(response(200, { data: [{ id: 'model-a' }] }))
+    vi.stubGlobal('fetch', fetch)
+    await refreshModelCatalog([selected], true)
+    await refreshModelCatalog([selected])
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

@@ -7,6 +7,9 @@ import type {
 } from '../../src/types/coding.js'
 import { CODING_SOURCES, BUILTIN_PROBLEMS, searchCodingResearch, skillTerms } from './research.js'
 import { reviewCodingAttempt } from './review.js'
+import { runCode as executeCode, type CodeRunInput, type CodeRunResult } from './runner.js'
+
+type ServiceCodeRunInput = CodeRunInput & { strategy_problem_id: string; timeoutMs?: number }
 
 const DEFAULT_SOURCES = CODING_SOURCES.map(source => source.id)
 const DIFFICULTY_ORDER: Record<string, number> = { easy: 0, medium: 1, hard: 2, unknown: 1 }
@@ -181,8 +184,8 @@ export function createCodingService(db: Database.Database) {
       // canonical row instead of creating a second copy with the same URL.
       ensureBuiltinProblems()
       const results = await searchCodingResearch({ company: row.company, department: row.department, role: row.role, jd: row.jd, sources: json(row.sources_json, DEFAULT_SOURCES) })
-      const insertProblem = db.prepare(`INSERT OR IGNORE INTO coding_problem(id,canonical_key,source,source_id,source_url,title,difficulty,tags_json,knowledge_json,statement,metadata_json)
-        VALUES(?,?,?,?,?,'', 'unknown','[]','[]',?,'{}')`)
+      const insertProblem = db.prepare(`INSERT OR IGNORE INTO coding_problem(id,canonical_key,source,source_id,source_url,title,difficulty,tags_json,knowledge_json,statement,constraints,examples_json,metadata_json)
+        VALUES(?,?,?,?,?,'', 'unknown','[]','[]',?,?,?,'{}')`)
       // Only direct problem paths become catalogue entries. Articles, API pages and
       // interview discussions remain research leads that the user can open.
       for (const item of results) {
@@ -192,15 +195,20 @@ export function createCodingService(db: Database.Database) {
         const existing = mergeDuplicateProblems(item.url) || db.prepare('SELECT * FROM coding_problem WHERE source_url=?').get(item.url) as Row | undefined
         const canonicalKey = existing?.canonical_key || `leetcode:${slug}`
         const metadata = { research_url: item.url, warning: item.warning, research_source: item.source, source_id: item.problem?.source_id || slug }
-        insertProblem.run(randomUUID(), canonicalKey, item.source, slug, item.url, item.problem?.statement || item.snippet.slice(0, 1800))
+        const statement = item.problem?.statement || item.snippet.slice(0, 1800)
+        const constraints = item.problem?.constraints || ''
+        const examples = item.problem?.examples || []
+        insertProblem.run(randomUUID(), canonicalKey, item.source, slug, item.url, statement, constraints, JSON.stringify(examples))
         db.prepare(`UPDATE coding_problem SET
           title=CASE WHEN title='' THEN ? ELSE title END,
           difficulty=CASE WHEN difficulty='unknown' AND ? IN ('easy','medium','hard') THEN ? ELSE difficulty END,
           tags_json=CASE WHEN tags_json='[]' AND ? != '[]' THEN ? ELSE tags_json END,
           knowledge_json=CASE WHEN knowledge_json='[]' AND ? != '[]' THEN ? ELSE knowledge_json END,
-          statement=CASE WHEN statement='' THEN ? ELSE statement END,
+          statement=CASE WHEN ? != '' AND (statement='' OR length(?) > length(statement)) THEN ? ELSE statement END,
+          constraints=CASE WHEN constraints='' AND ? != '' THEN ? ELSE constraints END,
+          examples_json=CASE WHEN examples_json='[]' AND ? != '[]' THEN ? ELSE examples_json END,
           metadata_json=?,updated_at=datetime('now') WHERE canonical_key=?`)
-          .run(item.title || slug, item.problem?.difficulty || 'unknown', item.problem?.difficulty || 'unknown', JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.knowledge || []), JSON.stringify(item.problem?.knowledge || []), item.problem?.statement || item.snippet.slice(0, 1800), JSON.stringify(metadata), canonicalKey)
+          .run(item.title || slug, item.problem?.difficulty || 'unknown', item.problem?.difficulty || 'unknown', JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.tags || []), JSON.stringify(item.problem?.knowledge || []), JSON.stringify(item.problem?.knowledge || []), statement, statement, statement, constraints, constraints, JSON.stringify(examples), JSON.stringify(examples), JSON.stringify(metadata), canonicalKey)
       }
       // Research is an append-only snapshot per strategy. Re-running a strategy
       // refreshes existing URLs and adds new URLs without erasing old leads.
@@ -278,6 +286,12 @@ export function createCodingService(db: Database.Database) {
       db.prepare("UPDATE coding_strategy_problem SET status=CASE WHEN status IN ('planned','learning') THEN 'attempted' ELSE status END,last_attempted_at=datetime('now'),updated_at=datetime('now') WHERE id=?").run(strategyProblem.id)
     })()
     return getAttempt(id)
+  }
+
+  async function runCode(raw: ServiceCodeRunInput): Promise<CodeRunResult> {
+    if (!raw.strategy_problem_id) throw new Error('请先选择策略中的题目')
+    rowStrategyProblem(asText(raw.strategy_problem_id))
+    return executeCode({ language: asText(raw.language), code: asText(raw.code), stdin: asText(raw.stdin), timeoutMs: raw.timeoutMs })
   }
 
   async function review(id: string): Promise<CodingAttempt> {
@@ -361,7 +375,7 @@ export function createCodingService(db: Database.Database) {
     return Boolean(research.some(item => item.url === url) || problem)
   }
 
-  return { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, search, plan, updateProblemStatus, saveAttempt, review, sync, canOpenSource, getAttempt }
+  return { listStrategies, getStrategy, createStrategy, updateStrategy, deleteStrategy, search, plan, updateProblemStatus, saveAttempt, runCode, review, sync, canOpenSource, getAttempt }
 }
 
 export type CodingService = ReturnType<typeof createCodingService>

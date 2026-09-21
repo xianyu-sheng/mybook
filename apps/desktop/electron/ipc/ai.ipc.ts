@@ -4,12 +4,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { getDb } from '../db/connection.js'
-import { getActiveModel, getAllModelsFromCCSwitch, createModelClient, resolveModelDefinition } from '../ai/provider.js'
+import { getActiveModel, getAllModelsFromCCSwitch, getAvailableModelsFromCCSwitch, createModelClient, resolveModelDefinition } from '../ai/provider.js'
 import type { ModelDef } from '../ai/provider.js'
 import type { LanguageModel } from 'ai'
 import { citationMarkdown, historicalCitationText, knowledgeContext, readCitationSnapshots, selectCitations, saveToDisk as saveKnowledgeFile } from '../ai/knowledge.js'
 import { generateTextWithFallback as generateWithBounds, type GenerationOptions } from '../ai/generate.js'
-import { generateCards } from '../ai/cards.js'
+import { generateCards, type GeneratedCard } from '../ai/cards.js'
 
 // ---- 模型降级辅助 ----
 
@@ -213,19 +213,14 @@ ipcMain.handle('knowmind:card:generate', async (_event, notebookId: string, coun
   if (!context) throw new Error('请先添加资料或完成一次问答、模拟面试')
 
   cardBusy.add(notebookId)
+  let persistedCount = 0
+  let markdownWarning = ''
   try {
     const { model, def } = await getActiveModel(db)
 
     const requested = count ?? 10
     if (!Number.isInteger(requested) || requested < 1 || requested > 20) throw new Error('卡片数量应为 1–20')
-    const cards = await generateCards(model, def, {
-      context, citations, system: modeConfig.systemPrompt, label: modeConfig.label, count: requested,
-      onProgress: progress => {
-        if (!_event.sender.isDestroyed()) _event.sender.send('knowmind:card:progress', { notebookId, ...progress })
-      },
-    })
 
-    // 插入卡片 —— 一次性写入 brief + detail
     const createdCards: unknown[] = []
     const insertCard = db.prepare(
       `INSERT INTO card (id, notebook_id, title, brief_answer, detail_answer, source_ids, tags_json, citations_json, status)
@@ -236,57 +231,67 @@ ipcMain.handle('knowmind:card:generate', async (_event, notebookId: string, coun
        VALUES (?, ?, ?, ?, 'card_detail', ?, ?, ?)`
     )
 
-    const txn = db.transaction(() => {
-      for (const card of cards) {
-        const cardId = uuid()
-        const supplementId = uuid()
+    // Persist each validated model batch immediately. A later timeout or
+    // malformed response therefore keeps the cards that already succeeded.
+    const persistBatch = (batch: GeneratedCard[]) => {
+      const batchRows: unknown[] = []
+      const txn = db.transaction(() => {
+        for (const card of batch) {
+          const cardId = uuid()
+          const supplementId = uuid()
+          insertCard.run(
+            cardId,
+            notebookId,
+            card.title,
+            card.brief_answer,
+            card.detail_answer || card.brief_answer,
+            JSON.stringify([...new Set(card.citations.filter(c => c.kind === 'source').map(c => c.id))]),
+            JSON.stringify({ tags: card.tags, sources: card.sources || [], mode: selectedMode, generatedModel: card.generatedModel }),
+            JSON.stringify(card.citations)
+          )
+          insertSupplement.run(
+            supplementId,
+            notebookId,
+            `卡片: ${card.title}`,
+            `## ${card.title}\n\n### 简要回答\n${card.brief_answer}\n\n### 详细解释\n${card.detail_answer || card.brief_answer}`,
+            cardId,
+            card.title,
+            JSON.stringify(card.citations)
+          )
+          batchRows.push(db.prepare('SELECT * FROM card WHERE id = ?').get(cardId))
+        }
+      })
+      txn()
+      createdCards.push(...batchRows)
+      persistedCount += batch.length
 
-        insertCard.run(
-          cardId,
-          notebookId,
-          card.title,
-          card.brief_answer,
-          card.detail_answer || card.brief_answer,
-          JSON.stringify([...new Set(card.citations.filter(c => c.kind === 'source').map(c => c.id))]),
-          JSON.stringify({ tags: card.tags, sources: card.sources || [], mode: selectedMode, generatedModel: card.generatedModel }),
-          JSON.stringify(card.citations)
-        )
-
-        insertSupplement.run(
-          supplementId,
-          notebookId,
-          `卡片: ${card.title}`,
-          `## ${card.title}\n\n### 简要回答\n${card.brief_answer}\n\n### 详细解释\n${card.detail_answer || card.brief_answer}`,
-          cardId,
-          card.title,
-          JSON.stringify(card.citations)
-        )
-
-        createdCards.push(
-          db.prepare('SELECT * FROM card WHERE id = ?').get(cardId)
-        )
+      const summaries = batch.map(card =>
+        `## ${card.title}\n\n### 简要回答\n${card.brief_answer}\n\n### 详细解释\n${card.detail_answer || card.brief_answer}${citationMarkdown(card.citations)}`
+      )
+      if (!saveToDisk(db, notebookId, `AI 生成知识卡片 (${modeConfig.label})`, summaries.join('\n\n---\n\n'), '卡片生成')) {
+        markdownWarning = '卡片已保存到知识库，但 Markdown 文件写入失败。'
       }
-    })
-
-    txn()
-
-    // 卡片落盘
-    const summaries: string[] = []
-    for (const card of cards) {
-      const entry = `## ${card.title}\n\n### 简要回答\n${card.brief_answer}\n\n### 详细解释\n${card.detail_answer || card.brief_answer}${citationMarkdown(card.citations)}`
-      summaries.push(entry)
+      db.prepare("UPDATE notebook SET updated_at = datetime('now') WHERE id = ?").run(notebookId)
     }
-    saveToDisk(db, notebookId, `AI 生成知识卡片 (${modeConfig.label})`, summaries.join('\n\n---\n\n'), '卡片生成')
 
-    db.prepare("UPDATE notebook SET updated_at = datetime('now') WHERE id = ?").run(notebookId)
-
+    await generateCards(model, def, {
+      context, citations, system: modeConfig.systemPrompt, label: modeConfig.label, count: requested,
+      existingTitles: (db.prepare('SELECT title FROM card WHERE notebook_id = ? ORDER BY created_at DESC LIMIT 200').all(notebookId) as Array<{ title: string }>).map(row => row.title),
+      onProgress: progress => {
+        if (!_event.sender.isDestroyed()) _event.sender.send('knowmind:card:progress', { notebookId, ...progress })
+      },
+      onBatch: persistBatch,
+    })
+    if (markdownWarning) console.warn('[KnowMind]', markdownWarning)
     return createdCards
   } catch (err: any) {
     console.error('[KnowMind] 卡片生成失败:', err.name, err.statusCode, err.message)
-    if (err.name === 'TimeoutError' || /timeout|timed out/i.test(err.message || '')) {
-      throw new Error('卡片生成已达到时间上限，本次未保存不完整结果，请稍后重试。')
-    }
-    throw new Error(`卡片生成失败：${err.message || String(err)}`)
+    const rawMessage = err.message || String(err)
+    const message = err.name === 'TimeoutError' || /timeout|timed out|时间上限/i.test(rawMessage)
+      ? `卡片生成超时：${rawMessage}`
+      : `卡片生成失败：${rawMessage}`
+    const saved = persistedCount ? ` 已保存 ${persistedCount} 张已完成的卡片，可直接继续使用。` : ''
+    throw new Error(`${message}${saved}`)
   } finally {
     cardBusy.delete(notebookId)
   }
@@ -333,7 +338,7 @@ ipcMain.handle('knowmind:supplement:export', async (_event, notebookId: string) 
 // ---- AI 模型列表 ----
 ipcMain.handle('knowmind:ai:list-models', async () => {
   const db = getDb()
-  const allModels = getAllModelsFromCCSwitch()
+  const allModels = await getAvailableModelsFromCCSwitch()
 
   // 获取当前选中的模型 key
   let activeKey = ''

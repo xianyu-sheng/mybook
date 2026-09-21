@@ -19,6 +19,8 @@ export interface CodingResearchItem {
     tags?: string[]
     knowledge?: string[]
     statement?: string
+    constraints?: string
+    examples?: Array<Record<string, unknown> | string>
   }
 }
 
@@ -140,6 +142,25 @@ export interface CodingAttemptInput {
   notes?: string
 }
 
+export interface CodingRunInput {
+  strategy_problem_id: string
+  language: string
+  code: string
+  stdin?: string
+  timeout_ms?: number
+}
+
+export interface CodingRunResult {
+  ok: boolean
+  output: string
+  error: string
+  exitCode: number | null
+  signal: string | null
+  durationMs: number
+  timedOut: boolean
+  complexity: { time: string; space: string; notice: string }
+}
+
 export interface CodingSyncRecord {
   id: string
   strategy_id: string
@@ -176,6 +197,7 @@ export interface CodingApi {
   plan: (id: string) => Promise<CodingStrategy>
   updateProblemStatus: (id: string, status: CodingProblemStatus) => Promise<CodingStrategyProblem>
   saveAttempt: (input: CodingAttemptInput) => Promise<CodingAttempt>
+  runCode: (input: CodingRunInput) => Promise<CodingRunResult>
   reviewAttempt: (id: string) => Promise<CodingAttempt>
   sync: (id: string, platform: CodingPlatform) => Promise<CodingSyncResult>
   openSource: (id: string, url: string) => Promise<void>

@@ -118,7 +118,10 @@ export async function generateTextWithFallback(
   const { timeoutMs = 45000, totalTimeoutMs = 180000, idleTimeoutMs = 20000, stream = false,
     allowFallback = true, candidates: configured, validate, onProgress, signal: externalSignal, ...generation } = opts
   externalSignal?.throwIfAborted()
-  const candidates = allowFallback ? generationCandidates(def, configured ?? getAllModelsFromCCSwitch()) : [def]
+  // getActiveModel refreshes the live model catalog before a request. Reuse
+  // that cache here so stale CC Switch aliases are skipped by every caller,
+  // including chat, recording analysis and card generation.
+  const candidates = allowFallback ? generationCandidates(def, configured ?? getAllModelsFromCCSwitch(true)) : [def]
   const deadline = Date.now() + totalTimeoutMs
   let totalExpired = false
   const blockedCredentials = new Set<string>()

@@ -181,6 +181,7 @@ export interface KnowMindApi {
     get: (id: string) => Promise<InterviewSession>
     create: (notebookId: string, input: InterviewInput) => Promise<InterviewSession>
     update: (id: string, patch: { title: string; tags: string[] }) => Promise<InterviewSession>
+    delete: (id: string) => Promise<void>
     research: (id: string) => Promise<InterviewSession>
     start: (id: string) => Promise<InterviewSession>
     answer: (id: string, turnId: string, answer: string) => Promise<InterviewSession>

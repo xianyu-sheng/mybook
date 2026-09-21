@@ -67,7 +67,14 @@ export default function CardList({ notebookId }: { notebookId: string }) {
       const next = await window.knowmind.cards.generate(notebookId, 10, mode)
       if (mounted.current) setCards(current => [...current, ...next])
       changed()
-    } catch (err) { if (mounted.current) setError(errorMessage(err)) }
+    } catch (err) {
+      if (!mounted.current) return
+      setError(errorMessage(err))
+      // The main process commits each completed batch. Reload after an
+      // interrupted run so cards saved before the failure are visible without
+      // asking the user to leave and reopen the notebook.
+      try { setCards(await window.knowmind.cards.list(notebookId)) } catch { /* keep the original generation error */ }
+    }
     finally { locked.current = false; if (mounted.current) setPending(null) }
   }
 

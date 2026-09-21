@@ -323,6 +323,9 @@ button:disabled { cursor: not-allowed; }
 .coding-reason > span { width: 100%; padding-left: 21px; }
 .dark .coding-reason { color: #a5c1ec; background: #202c44; }
 .coding-statement { padding: 16px 22px; border-bottom: 1px solid var(--app-border); font-size: 13px; }
+.coding-examples { margin-top: 13px; border: 1px solid var(--app-border); border-radius: 8px; overflow: hidden; }
+.coding-examples summary { padding: 9px 11px; cursor: pointer; color: var(--app-accent); font-size: 11px; }
+.coding-examples pre { margin: 0; padding: 11px; overflow-x: auto; color: var(--app-text); background: var(--app-bg); font-size: 11px; white-space: pre-wrap; }
 .coding-tabs { display: flex; gap: 19px; padding: 0 22px; border-bottom: 1px solid var(--app-border); }
 .coding-tabs button { padding: 12px 1px 10px; color: var(--app-muted); border-bottom: 2px solid transparent; font-size: 12px; }
 .coding-tabs button.is-active { color: var(--app-accent); border-color: var(--app-accent); font-weight: 600; }
@@ -330,6 +333,12 @@ button:disabled { cursor: not-allowed; }
 .coding-answer-form > label { display: grid; gap: 6px; color: var(--app-muted); font-size: 11px; }
 .coding-answer-form .coding-form-grid { padding: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .coding-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.65; }
+.coding-run-panel { padding: 12px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-bg); }
+.coding-run-result { margin-top: 10px; padding: 10px; border: 1px solid #b9d9c2; border-radius: 7px; background: #f3fbf5; color: var(--app-text); }
+.coding-run-result.is-error { border-color: #e3b9b9; background: #fff7f7; }
+.dark .coding-run-result { border-color: #315d40; background: #1b3022; }.dark .coding-run-result.is-error { border-color: #673b3b; background: #351f1f; }
+.coding-run-result pre { max-height: 230px; margin: 9px 0 0; padding: 9px; overflow: auto; border-radius: 5px; background: rgba(0,0,0,.06); font-size: 11px; white-space: pre-wrap; }
+.coding-run-result .coding-run-stderr { color: #a03b3b; }
 .coding-attempt-list { padding: 17px 22px 22px; }
 .coding-attempt { border: 1px solid var(--app-border); border-radius: 9px; overflow: hidden; margin-bottom: 9px; }
 .coding-attempt summary { padding: 12px 14px; cursor: pointer; color: var(--app-text); font-size: 12px; font-weight: 550; }

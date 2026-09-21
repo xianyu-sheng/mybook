@@ -20,6 +20,13 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'mybook-audio', privileges: { st
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Some Linux desktop/GPU combinations let Electron create a window and then
+// immediately crash its GPU process. Mybook is a document-focused app, so
+// software rendering is a safer default on Linux and keeps the window usable
+// after a driver or compositor update. Windows and macOS retain hardware
+// acceleration.
+if (process.platform === 'linux') app.disableHardwareAcceleration()
+
 // Keep existing notebooks and provider settings when upgrading the brand.
 // An explicit profile (including automated tests) must always take precedence.
 const legacyProfile = path.join(app.getPath('appData'), '知心')

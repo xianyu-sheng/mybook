@@ -127,3 +127,22 @@ export function saveToDisk(db: Database.Database, notebookId: string, title: str
   if (!entryId) fs.appendFileSync(path.join(dir, `${nbName}_补充汇总.md`), `\n---\n${entry}`, 'utf8')
   return file
 }
+
+/** Remove the deterministic Markdown export for an entry when its database
+ * record is deleted. This only targets files named with the supplied entry
+ * UUID, so unrelated user-authored files in the output directory are left
+ * untouched. */
+export function removeSavedEntry(db: Database.Database, notebookId: string, entryId: string): boolean {
+  if (!entryId) return false
+  let configured: unknown = null
+  try {
+    const setting = db.prepare("SELECT value_json FROM settings WHERE key = 'outputDir'").get() as { value_json: string } | undefined
+    configured = setting ? JSON.parse(setting.value_json) : null
+  } catch { configured = null }
+  const dir = typeof configured === 'string' && configured.trim() ? configured : path.join(os.homedir(), 'Mybook输出')
+  const notebook = db.prepare('SELECT title FROM notebook WHERE id = ?').get(notebookId) as { title: string } | undefined
+  if (!notebook) return false
+  const safe = (name: string) => name.replace(/[\/\\:*?"<>|\x00-\x1f]/g, '_').slice(0, 40)
+  const file = path.join(dir, `${safe(notebook.title)}_${notebookId.slice(0, 8)}_${entryId}.md`)
+  try { fs.rmSync(file, { force: true }); return true } catch { return false }
+}

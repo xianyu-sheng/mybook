@@ -8,6 +8,7 @@ import { parseInterviewFeedback } from '../ai/structured.js'
 import { knowledgeContext, saveToDisk, selectCitations, citationMarkdown, readCitationSnapshots, historicalCitationText } from '../ai/knowledge.js'
 import { interviewHistoryContext } from '../interview/context.js'
 import { searchResearch } from '../interview/research.js'
+import { deleteInterviewSession } from '../interview/service.js'
 import type { InterviewSession, InterviewTurn, ResearchItem } from '../../src/types/interview.js'
 
 const inputSchema = z.object({
@@ -101,6 +102,10 @@ export function registerInterviewIpc(): void {
     getDb().prepare("UPDATE interview_session SET title = ?, tags_json = ?, updated_at = datetime('now') WHERE id = ?").run(patch.title, JSON.stringify([...new Set(patch.tags)]), id)
     exportSession(id)
     return getSession(id)
+  })
+  ipcMain.handle('knowmind:interviews:delete', (_, id: string) => {
+    if (busy.has(id)) throw new Error('请等待当前请求完成后再删除')
+    deleteInterviewSession(getDb(), id)
   })
   ipcMain.handle('knowmind:interviews:research', (_, id: string) => withSessionLock(id, async () => {
     const session = getSession(id)

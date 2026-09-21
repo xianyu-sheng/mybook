@@ -28,14 +28,19 @@ export function parseCards(text: string, expected: number, previous: string[] = 
 
 export async function generateCards(model: LanguageModel, def: ModelDef, options: {
   context: string; citations: readonly CitationSnapshot[]; system: string; label: string; count: number
+  existingTitles?: readonly string[]
   onProgress?: (progress: GenerationProgress & { completed: number; requested: number }) => void
+  /** Called after a complete batch has been validated. Consumers can persist
+   * it before the next model request so a later failure never loses earlier
+   * cards. */
+  onBatch?: (cards: GeneratedCard[]) => void | Promise<void>
 }) {
   const cards: GeneratedCard[] = []
   const allowedRefs = options.citations.map(citation => citation.ref)
   const deadline = Date.now() + 360000
   while (cards.length < options.count) {
     const count = Math.min(2, options.count - cards.length)
-    const titles = cards.map(card => card.title)
+    const titles = [...(options.existingTitles || []), ...cards.map(card => card.title)]
     const remaining = deadline - Date.now()
     if (remaining <= 0) throw new Error('卡片生成已达到时间上限，本次未保存不完整结果，请稍后重试。')
     const result = await generateTextWithFallback(model, def, {
@@ -45,8 +50,10 @@ export async function generateCards(model: LanguageModel, def: ModelDef, options
       validate: text => { parseCards(text, count, titles, allowedRefs) },
       onProgress: progress => options.onProgress?.({ ...progress, completed: cards.length, requested: options.count }),
     })
-    cards.push(...parseCards(result.text, count, titles, allowedRefs).map(card => ({ ...card, generatedModel: result.usedModel,
-      citations: selectCitations(`${card.title}\n${card.brief_answer}\n${card.detail_answer}`, options.citations, card.sources) })))
+    const batch = parseCards(result.text, count, titles, allowedRefs).map(card => ({ ...card, generatedModel: result.usedModel,
+      citations: selectCitations(`${card.title}\n${card.brief_answer}\n${card.detail_answer}`, options.citations, card.sources) }))
+    cards.push(...batch)
+    await options.onBatch?.(batch)
     options.onProgress?.({ phase: 'success', model: result.usedModel, attempt: 0, total: 0, completed: cards.length, requested: options.count })
   }
   return cards

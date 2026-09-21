@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
 vi.mock('electron', () => ({ ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => state.handlers.set(name, handler) } }))
 vi.mock('../db/connection.js', () => ({ getDb: () => state.db! }))
 vi.mock('../ai/provider.js', () => ({
-  getActiveModel: async () => ({ model: {}, def: {} }), getAllModelsFromCCSwitch: () => [],
+  getActiveModel: async () => ({ model: {}, def: {} }), getAllModelsFromCCSwitch: () => [], getAvailableModelsFromCCSwitch: async () => [],
   createModelClient: vi.fn(), resolveModelDefinition: vi.fn(),
 }))
 vi.mock('../ai/generate.js', async importOriginal => {
@@ -92,5 +92,16 @@ describe('AI knowledge citation persistence through actual IPC and SQLite', () =
     await expect(invoke('knowmind:card:generate', 'book', 2)).rejects.toThrow('卡片生成失败')
     expect((state.db!.prepare('SELECT COUNT(*) AS n FROM card').get() as any).n).toBe(0)
     expect((state.db!.prepare('SELECT COUNT(*) AS n FROM supplement').get() as any).n).toBe(0)
+  })
+
+  it('keeps completed card batches when a later batch fails', async () => {
+    source('source', 'Source', 'Source original')
+    state.outputs.push(
+      JSON.stringify([card('First card', '来源[1]'), card('Second card', '来源[1]')]),
+      '{"incomplete": true}'
+    )
+    await expect(invoke('knowmind:card:generate', 'book', 4)).rejects.toThrow('已保存 2 张')
+    expect((state.db!.prepare('SELECT COUNT(*) AS n FROM card').get() as any).n).toBe(2)
+    expect((state.db!.prepare('SELECT COUNT(*) AS n FROM supplement').get() as any).n).toBe(2)
   })
 })

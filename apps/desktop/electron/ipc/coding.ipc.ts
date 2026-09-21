@@ -1,7 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { createCodingService } from '../coding/service.js'
 import { getDb } from '../db/connection.js'
-import type { CodingAttemptInput, CodingProblemStatus, CodingStrategyInput, CodingStrategyStatus } from '../../src/types/coding.js'
+import type { CodingAttemptInput, CodingProblemStatus, CodingRunInput, CodingStrategyInput, CodingStrategyStatus } from '../../src/types/coding.js'
 
 let registered = false
 
@@ -19,6 +19,7 @@ export function registerCodingIpc(): void {
   ipcMain.handle('knowmind:coding:strategies:problems', (_event, id: string) => service.getStrategy(id).problems)
   ipcMain.handle('knowmind:coding:problems:status', (_event, id: string, status: CodingProblemStatus) => service.updateProblemStatus(id, status))
   ipcMain.handle('knowmind:coding:attempts:save', (_event, input: CodingAttemptInput) => service.saveAttempt(input))
+  ipcMain.handle('knowmind:coding:run', (_event, input: CodingRunInput) => service.runCode({ ...input, timeoutMs: input.timeout_ms }))
   ipcMain.handle('knowmind:coding:attempts:review', (_event, id: string) => service.review(id))
   ipcMain.handle('knowmind:coding:sync', (_event, id: string, platform: 'leetcode' | 'nowcoder') => service.sync(id, platform))
   // Keep strategy-scoped aliases so the renderer API reads naturally and old previews can be upgraded safely.

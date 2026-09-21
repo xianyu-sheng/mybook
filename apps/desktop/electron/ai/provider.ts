@@ -10,6 +10,7 @@
  */
 import type { LanguageModel } from 'ai'
 import Database from 'better-sqlite3'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -44,6 +45,28 @@ export interface ModelDef {
   /** 降级模型列表（当前模型不可用时依次尝试） */
   fallbackModels: string[]
   wireApi?: 'responses' | 'chat'
+}
+
+/**
+ * CC Switch keeps a user-maintained model list. Gateways can remove models
+ * without updating that list, so generation also keeps a short-lived, private
+ * copy of each provider's live `/models` response. API keys never leave this
+ * module and are only used by the main process request.
+ */
+interface LiveModelCatalog {
+  checkedAt: number
+  /** `undefined` means the endpoint did not expose a usable catalog. */
+  modelIds?: ReadonlySet<string>
+  blocked?: boolean
+}
+
+const MODEL_CATALOG_TTL = 5 * 60 * 1000
+const MODEL_CATALOG_TIMEOUT = 5000
+const liveCatalog = new Map<string, LiveModelCatalog>()
+const NON_GENERATIVE_MODEL = /(?:image|embedding|embed|rerank|whisper|tts|dall-e|auto-review)/i
+
+function catalogKey(def: Pick<ModelDef, 'baseURL' | 'apiKey'> & Partial<Pick<ModelDef, 'provider' | 'wireApi'>>): string {
+  return createHash('sha256').update(`${def.baseURL.replace(/\/+$/, '')}\n${def.apiKey}\n${def.provider || ''}\n${def.wireApi || ''}`).digest('hex')
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +150,9 @@ export function modelsFromProvider(row: CCProvider, endpointURL = '', active = f
   }))
 }
 
-/** 从 CC Switch DB 读取所有可用的 AI provider */
-export function getAllModelsFromCCSwitch(): ModelDef[] {
+/** 从 CC Switch DB 读取所有配置的 AI provider。`liveOnly` 只应用已经
+ * 完成的实时目录缓存；实时刷新由异步的 getAvailableModelsFromCCSwitch 完成。 */
+export function getAllModelsFromCCSwitch(liveOnly = false): ModelDef[] {
   const db = openCCDb()
   if (!db) {
     console.warn('[KnowMind] 无法打开 CC Switch 数据库:', CC_SWITCH_DB)
@@ -161,7 +185,22 @@ export function getAllModelsFromCCSwitch(): ModelDef[] {
     db.close()
   }
 
-  return models.map(model => ({ ...model, fallbackModels: configuredFallbacks(model, models) }))
+  const withFallbacks = models.map(model => ({ ...model, fallbackModels: configuredFallbacks(model, models) }))
+  if (!liveOnly) return withFallbacks
+  // Rebuild fallback names after filtering and live expansion. Otherwise a
+  // stale alias removed from `/models` could be reintroduced through the old
+  // fallbackModels list.
+  return getCachedAvailableModels(withFallbacks)
+}
+
+/** Refresh provider catalogs before choosing a model for a real request. A
+ * provider that does not support `/models` remains eligible; only explicit
+ * model IDs and invalid credentials are filtered. */
+export async function getAvailableModelsFromCCSwitch(force = false): Promise<ModelDef[]> {
+  const configured = getAllModelsFromCCSwitch()
+  if (!configured.length) return []
+  await refreshModelCatalog(configured, force)
+  return getCachedAvailableModels(configured)
 }
 
 export function resolveModelDefinition(models: ModelDef[], selectedKey: string | null): ModelDef | undefined {
@@ -171,6 +210,124 @@ export function resolveModelDefinition(models: ModelDef[], selectedKey: string |
 function apiRoot(value: string): string {
   const base = value.replace(/\/+$/, '')
   return base.endsWith('/v1') ? base : `${base}/v1`
+}
+
+function parseCatalogIds(body: unknown): string[] | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const data = (body as { data?: unknown }).data
+  if (!Array.isArray(data)) return undefined
+  const ids = data
+    .map(item => item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'
+      ? (item as { id: string }).id.trim() : '')
+    .filter(Boolean)
+  return ids.length ? [...new Set(ids)] : undefined
+}
+
+/** Probe one provider route without turning a temporary network error into a
+ * false "model unavailable" result. Only an explicit catalog (or an explicit
+ * 401/403) is used to filter configured model names. */
+async function refreshLiveCatalog(def: ModelDef, force = false): Promise<void> {
+  const key = catalogKey(def)
+  const cached = liveCatalog.get(key)
+  if (!force && cached && Date.now() - cached.checkedAt < MODEL_CATALOG_TTL) return
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MODEL_CATALOG_TIMEOUT)
+  try {
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (def.provider === 'anthropic') {
+      headers['x-api-key'] = def.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    } else {
+      headers.Authorization = `Bearer ${def.apiKey}`
+    }
+    const response = await fetch(`${apiRoot(def.baseURL)}/models`, {
+      method: 'GET', headers, signal: controller.signal
+    })
+    if (response.status === 401 || response.status === 403) {
+      // This route cannot be used by this credential. Keeping the state in a
+      // hash-keyed map avoids exposing either the key or upstream response.
+      liveCatalog.set(key, { checkedAt: Date.now(), blocked: true, modelIds: new Set() })
+      return
+    }
+    if (!response.ok || [404, 405, 501].includes(response.status)) {
+      liveCatalog.set(key, { checkedAt: Date.now() })
+      return
+    }
+    const raw = await response.text()
+    let body: unknown
+    try { body = JSON.parse(raw) } catch { body = undefined }
+    const ids = parseCatalogIds(body)
+    // A successful response without a standard data array is treated as an
+    // unknown catalog (some compatible gateways do not implement discovery).
+    liveCatalog.set(key, { checkedAt: Date.now(), modelIds: ids ? new Set(ids) : undefined })
+  } catch {
+    // Offline mode and transient DNS/TLS failures must not hide all configured
+    // models. The normal generation fallback still reports the real failure.
+    liveCatalog.set(key, { checkedAt: Date.now() })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function refreshModelCatalog(models: ModelDef[], force = false): Promise<void> {
+  const routes = new Map<string, ModelDef>()
+  for (const model of models) {
+    const key = catalogKey(model)
+    if (!routes.has(key)) routes.set(key, model)
+  }
+  await Promise.allSettled([...routes.values()].map(model => refreshLiveCatalog(model, force)))
+}
+
+/** Test/support hook; it never exposes catalog contents or credentials. */
+export function clearLiveModelCatalog(): void {
+  liveCatalog.clear()
+}
+
+function filterLiveModels(models: ModelDef[]): ModelDef[] {
+  return models.filter(model => {
+    const catalog = liveCatalog.get(catalogKey(model))
+    if (!catalog) return true
+    if (catalog.blocked) return false
+    return !catalog.modelIds || catalog.modelIds.has(model.modelName)
+  })
+}
+
+/** Add text-capable IDs that the provider exposed but CC Switch did not have
+ * in its hand-maintained list. This keeps the registry current without ever
+ * guessing a model name when discovery is unavailable. */
+function expandLiveModels(models: ModelDef[]): ModelDef[] {
+  const result = [...models]
+  const seen = new Set(models.map(model => `${catalogKey(model)}\n${model.modelName}`))
+  for (const template of models) {
+    const catalog = liveCatalog.get(catalogKey(template))
+    if (!catalog?.modelIds || catalog.blocked) continue
+    for (const modelName of catalog.modelIds) {
+      if (!modelName || NON_GENERATIVE_MODEL.test(modelName)) continue
+      const identity = `${catalogKey(template)}\n${modelName}`
+      if (seen.has(identity)) continue
+      seen.add(identity)
+      result.push({
+        ...template,
+        key: `${template.key}::${encodeURIComponent(modelName)}`,
+        modelName,
+        isCCSwitchActive: false,
+        fallbackModels: [],
+      })
+    }
+  }
+  return result
+}
+
+function availableWithFallbacks(models: ModelDef[]): ModelDef[] {
+  return models.map(model => ({ ...model, fallbackModels: configuredFallbacks(model, models) }))
+}
+
+/** Return configured models after any cached live catalog has removed models
+ * that the provider explicitly says do not exist. */
+export function getCachedAvailableModels(models: ModelDef[]): ModelDef[] {
+  const available = expandLiveModels(filterLiveModels(models))
+  return availableWithFallbacks(available)
 }
 
 export function configuredFallbacks(def: ModelDef, models: ModelDef[]): string[] {
@@ -236,12 +393,17 @@ export async function createModelClient(def: ModelDef): Promise<LanguageModel> {
 const ACTIVE_MODEL_KEY = 'activeModel'
 
 export async function getActiveModel(db: Database.Database): Promise<{ model: LanguageModel; def: ModelDef }> {
-  const allModels = getAllModelsFromCCSwitch()
-  if (allModels.length === 0) {
+  const configuredModels = getAllModelsFromCCSwitch()
+  if (configuredModels.length === 0) {
     throw new Error(
       '未发现可用的 AI 模型。请在 CC Switch 中配置至少一个 Provider 的 API Key。\n\n' +
       'CC Switch 数据位置: ~/.cc-switch/cc-switch.db'
     )
+  }
+
+  const allModels = await getAvailableModelsFromCCSwitch()
+  if (allModels.length === 0) {
+    throw new Error('CC Switch 中配置的模型均未通过实时目录检查，可能已下架、未开通或凭据无效。请刷新模型列表或检查 CC Switch 配置。')
   }
 
   // 从 KnowMind 设置读取用户选择的模型

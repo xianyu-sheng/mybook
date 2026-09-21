@@ -69,6 +69,8 @@ type EnrichedResearchItem = CodingResearchItem & {
     tags?: string[]
     knowledge?: string[]
     statement?: string
+    constraints?: string
+    examples?: Array<Record<string, unknown> | string>
   }
 }
 
@@ -244,6 +246,86 @@ async function searchLeetCode(input: CodingSearchInput): Promise<EnrichedResearc
   return found
 }
 
+interface LeetCodeQuestionDetail {
+  questionId?: string
+  questionFrontendId?: string
+  translatedTitle?: string
+  translatedContent?: string
+  content?: string
+  difficulty?: string
+  topicTags?: Array<{ name?: string; translatedName?: string }>
+  exampleTestcases?: string | string[]
+}
+
+/**
+ * Company lists and the LingShen index usually expose only a title and a
+ * problem URL. Fetch the public LeetCode question document as a second step
+ * so the local problem view contains the statement, constraints and examples
+ * instead of a search-result sentence. A failed detail request is ignored;
+ * the original public URL is still retained as a useful source lead.
+ */
+async function fetchLeetCodeDetail(slug: string): Promise<LeetCodeQuestionDetail | null> {
+  const query = `query($titleSlug:String!){ question(titleSlug:$titleSlug){ questionId questionFrontendId translatedTitle translatedContent content difficulty topicTags{name translatedName} exampleTestcases } }`
+  try {
+    const payload = await fetchJson<{ data?: { question?: LeetCodeQuestionDetail | null }; errors?: Array<{ message?: string }> }>('https://leetcode.cn/graphql/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Referer: `https://leetcode.cn/problems/${slug}/`, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7' },
+      body: JSON.stringify({ query, variables: { titleSlug: slug } }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (payload.errors?.length || !(payload.data?.question?.translatedContent || payload.data?.question?.content)) return null
+    return payload.data.question
+  } catch { return null }
+}
+
+function detailProblem(detail: LeetCodeQuestionDetail): NonNullable<EnrichedResearchItem['problem']> {
+  const content = detail.translatedContent || detail.content || ''
+  const $ = load(`<div>${content}</div>`)
+  const plain = htmlText(content)
+  const constraintsMatch = plain.match(/(?:约束|限制|提示|constraints?)\s*[:：]\s*([\s\S]*?)(?=(?:进阶|follow[- ]?up)\s*[:：]|$)/i)
+  const statement = constraintsMatch ? plain.slice(0, constraintsMatch.index).trim() : plain
+  const constraints = constraintsMatch?.[1]?.trim() || ''
+  const examples = $('pre').toArray().map(element => $(element).text().trim()).filter(Boolean)
+  const difficulty = detail.difficulty === 'EASY' ? 'easy' : detail.difficulty === 'HARD' ? 'hard' : detail.difficulty === 'MEDIUM' ? 'medium' : 'unknown'
+  const tags = (detail.topicTags || []).map(tag => tag.translatedName || tag.name || '').filter(Boolean)
+  return {
+    source_id: detail.questionFrontendId || detail.questionId,
+    difficulty,
+    tags,
+    knowledge: tags,
+    statement: statement || plain,
+    constraints,
+    examples: examples.length ? examples : (Array.isArray(detail.exampleTestcases) ? detail.exampleTestcases : detail.exampleTestcases ? [detail.exampleTestcases] : []),
+  }
+}
+
+async function enrichLeetCodeProblems(results: EnrichedResearchItem[]): Promise<EnrichedResearchItem[]> {
+  const candidates = results
+    .filter(result => /https?:\/\/leetcode\.cn\/problems\/([a-z0-9-]+)\/?$/i.test(result.url))
+    .sort((a, b) => {
+      const needs = (item: EnrichedResearchItem) => !item.problem?.statement || !item.problem?.constraints || !item.problem?.examples?.length
+      return Number(needs(b)) - Number(needs(a))
+    })
+  const unique = new Map<string, EnrichedResearchItem>()
+  for (const result of candidates) {
+    const match = result.url.match(/\/problems\/([a-z0-9-]+)\/?$/i)
+    if (match && !unique.has(match[1].toLowerCase())) unique.set(match[1].toLowerCase(), result)
+  }
+  // Keep refresh latency bounded even when a source returns a very large
+  // topic list. The first 60 links cover the initial planned page, while any
+  // remaining links can still be opened from their live source URL.
+  const targets = [...unique.entries()].slice(0, 60)
+  const details = await Promise.allSettled(targets.map(async ([slug, result]) => ({ slug, result, detail: await fetchLeetCodeDetail(slug) })))
+  for (const settled of details) {
+    if (settled.status !== 'fulfilled' || !settled.value.detail) continue
+    const { result, detail } = settled.value
+    const enriched = detailProblem(detail)
+    result.problem = { ...result.problem, ...enriched }
+    if (detail.translatedTitle && (!result.title || /未命名|题单/.test(result.title))) result.title = detail.translatedTitle
+  }
+  return results
+}
+
 function titleFromSlug(slug: string): string { return slug.split('-').map(word => word ? word[0].toUpperCase() + word.slice(1) : word).join(' ') }
 
 async function searchLingShen(input: CodingSearchInput): Promise<EnrichedResearchItem[]> {
@@ -332,7 +414,7 @@ export async function searchCodingResearch(input: CodingSearchInput): Promise<Co
     const detail = failures.length ? `（${failures.slice(0, 3).join('；')}）` : ''
     throw new Error(`未找到匹配的公开题源${detail}。可以保留内置题单，或稍后再次搜索。`)
   }
-  return [...results.values()].slice(0, 120)
+  return (await enrichLeetCodeProblems([...results.values()])).slice(0, 120)
 }
 
 export interface BuiltinProblem {

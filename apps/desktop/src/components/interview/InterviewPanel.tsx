@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, ChevronDown, ChevronUp, Search, Loader2, Play, Send, Pencil, Download, Check, X, ExternalLink, Building2, Tag } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Search, Loader2, Play, Send, Pencil, Download, Check, X, ExternalLink, Building2, Tag, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import PracticeButton from '@/components/PracticeButton'
@@ -27,6 +27,7 @@ export default function InterviewPanel({ notebookId }: { notebookId: string }) {
   const [loading, setLoading] = useState(true)
   const lock = useRef(false)
   const mounted = useRef(true)
+  const autoResearchAttempted = useRef(new Set<string>())
 
   const replace = useCallback((session: InterviewSession) => {
     if (!mounted.current) return
@@ -72,6 +73,26 @@ export default function InterviewPanel({ notebookId }: { notebookId: string }) {
     })
   }
 
+  const remove = async (id: string) => {
+    if (lock.current || !window.confirm('删除这场模拟面试？面试问答、点评和已加入知识库的复习内容都会删除。')) return
+    lock.current = true
+    setPending(id)
+    setError('')
+    try {
+      await window.knowmind.interviews.delete(id)
+      if (mounted.current) {
+        setSessions(current => current.filter(session => session.id !== id))
+        if (open === id) setOpen(null)
+      }
+      window.dispatchEvent(new CustomEvent('knowmind:knowledge-changed', { detail: notebookId }))
+    } catch (err: any) {
+      if (mounted.current) setError(err.message || String(err))
+    } finally {
+      lock.current = false
+      if (mounted.current) setPending(null)
+    }
+  }
+
   const allTags = [...new Set(sessions.flatMap(s => s.tags))]
   const visible = sessions.filter(s => `${s.title} ${s.company} ${s.department} ${s.role} ${s.tags.join(' ')}`.toLowerCase().includes(filter.toLowerCase()) && (!tagFilter || s.tags.includes(tagFilter)))
 
@@ -103,13 +124,24 @@ export default function InterviewPanel({ notebookId }: { notebookId: string }) {
       <label className="relative flex-1"><Search size={15} className="absolute left-3 top-3 text-zinc-400" /><input aria-label="搜索面试" className={`${field} pl-9`} value={filter} onChange={e => setFilter(e.target.value)} placeholder="搜索企业、岗位或面试名称" /></label>
       <select aria-label="筛选标签" className={`${field} max-w-40`} value={tagFilter} onChange={e => setTagFilter(e.target.value)}><option value="">全部标签</option>{allTags.map(tag => <option key={tag}>{tag}</option>)}</select>
     </div>}
-    {loading ? <Loader2 className="animate-spin mx-auto my-10 text-zinc-400" /> : visible.length === 0 ? <p className="py-10 text-sm text-zinc-500 text-center">{sessions.length ? '没有匹配的面试' : '暂无模拟面试'}</p> : <div className="space-y-3">{visible.map(session => <Session key={session.id} session={session} expanded={open === session.id} onToggle={() => setOpen(open === session.id ? null : session.id)} disabled={Boolean(pending)} busy={pending === session.id || pending === 'new' && open === session.id} run={task => action(session.id, task)} />)}</div>}
+    {loading ? <Loader2 className="animate-spin mx-auto my-10 text-zinc-400" /> : visible.length === 0 ? <p className="py-10 text-sm text-zinc-500 text-center">{sessions.length ? '没有匹配的面试' : '暂无模拟面试'}</p> : <div className="space-y-3">{visible.map(session => <Session key={session.id} session={session} expanded={open === session.id} onToggle={() => {
+      const next = open === session.id ? null : session.id
+      setOpen(next)
+      // Sessions created before the live-search fix may have an empty cached
+      // result (and an old "not found" error). Refresh once when opened; the
+      // explicit search button remains available for another retry.
+      if (next && !lock.current && session.search_web && !session.research.length && !autoResearchAttempted.current.has(session.id)) {
+        autoResearchAttempted.current.add(session.id)
+        void action(session.id, () => window.knowmind.interviews.research(session.id))
+      }
+    }} disabled={Boolean(pending)} busy={pending === session.id || pending === 'new' && open === session.id} run={task => action(session.id, task)} onDelete={() => void remove(session.id)} />)}</div>}
   </section>
 }
 
-function Session({ session, expanded, onToggle, disabled, busy, run }: {
+function Session({ session, expanded, onToggle, disabled, busy, run, onDelete }: {
   session: InterviewSession; expanded: boolean; onToggle: () => void; disabled: boolean; busy: boolean
   run: (task: () => Promise<InterviewSession>) => void
+  onDelete: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(session.title)
@@ -142,6 +174,7 @@ function Session({ session, expanded, onToggle, disabled, busy, run }: {
       </button>
       <button title="编辑名称和标签" aria-label="编辑名称和标签" className={`${iconButton} mt-2`} disabled={disabled} onClick={() => { setTitle(session.title); setTags(session.tags.join('，')); setEditing(!editing) }}><Pencil size={15} /></button>
       <button title="导出面试记录" aria-label="导出面试记录" className={`${iconButton} mt-2`} onClick={exportMd}><Download size={15} /></button>
+      <button title="删除模拟面试" aria-label="删除模拟面试" className={`${iconButton} mt-2 text-red-600`} disabled={disabled} onClick={onDelete}><Trash2 size={15} /></button>
     </div>
     {editing && <form className="px-4 pb-4 flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); run(async () => { const result = await window.knowmind.interviews.update(session.id, { title, tags: tagsFrom(tags) }); setEditing(false); return result }) }}>
       <input aria-label="面试名称" className={`${field} flex-1 basis-60`} required maxLength={160} value={title} onChange={e => setTitle(e.target.value)} />
