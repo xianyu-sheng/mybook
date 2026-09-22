@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron'
+import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -20,12 +21,32 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'mybook-audio', privileges: { st
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// On a few Linux/Chromium combinations the GPU process is created before
+// Electron applies app.disableHardwareAcceleration(). Re-exec the packaged
+// process with Chromium's explicit switch so a normal desktop launch is as
+// reliable as `mybook --disable-gpu`.
+if (process.platform === 'linux' && !process.argv.includes('--disable-gpu')) {
+  const child = spawn(process.execPath, [...process.argv.slice(1), '--disable-gpu'], {
+    detached: true,
+    stdio: 'ignore'
+  })
+  child.unref()
+  process.exit(0)
+}
+
 // Some Linux desktop/GPU combinations let Electron create a window and then
 // immediately crash its GPU process. Mybook is a document-focused app, so
 // software rendering is a safer default on Linux and keeps the window usable
 // after a driver or compositor update. Windows and macOS retain hardware
 // acceleration.
-if (process.platform === 'linux') app.disableHardwareAcceleration()
+if (process.platform === 'linux') {
+  app.disableHardwareAcceleration()
+  // Some Electron/Chromium builds still start a GPU process before the
+  // hardware-acceleration setting is observed. Explicitly disable the GPU
+  // command-line path as well; this prevents a compositor/driver crash from
+  // leaving a running process with no visible Mybook window.
+  app.commandLine.appendSwitch('disable-gpu')
+}
 
 // Keep existing notebooks and provider settings when upgrading the brand.
 // An explicit profile (including automated tests) must always take precedence.
