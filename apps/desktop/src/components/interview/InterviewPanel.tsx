@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, ChevronDown, ChevronUp, Search, Loader2, Play, Send, Pencil, Download, Check, X, ExternalLink, Building2, Tag, Trash2 } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Search, Loader2, Play, Send, Pencil, Download, Check, X, ExternalLink, Building2, Tag, Trash2, RefreshCw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import PracticeButton from '@/components/PracticeButton'
@@ -197,7 +197,9 @@ function Session({ session, expanded, onToggle, disabled, busy, run, onDelete }:
         <CitationList citations={parseCitations(turn.question_citations_json)} />
         {turn.answer && <div className="mt-4"><h3 className="text-xs font-medium text-zinc-500 mb-1">我的回答</h3><p className="text-sm whitespace-pre-wrap break-words">{turn.answer}</p></div>}
         {turn.feedback && <div className="mt-4 space-y-3">
+          {turn.model_name === 'local-fallback' && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">AI 渠道暂时不可用，已保存本地保底点评。内容仅用于保持练习连续性，完成本题后仍可重试 AI。</div>}
           <div><h3 className="text-xs text-emerald-600 font-medium mb-1">面试点评 · {turn.score}/100</h3><div className="markdown-body text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children }) => <span>{children}</span> }}>{turn.feedback}</ReactMarkdown></div></div>
+          {turn.model_name === 'local-fallback' && <button className={`${command} text-blue-600`} disabled={disabled} onClick={() => run(() => window.knowmind.interviews.retryAnswer(session.id, turn.id))}><RefreshCw size={14} />重试 AI 点评</button>}
           <PracticeButton source="interview" id={turn.id} />
           <CitationList citations={parseCitations(turn.citations_json)} />
           <details><summary className="text-sm text-blue-600 cursor-pointer">参考答案与复习知识</summary><div className="markdown-body text-sm mt-2"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children }) => <span>{children}</span> }}>{`${turn.reference_answer}\n\n### 复习知识\n${turn.knowledge}`}</ReactMarkdown></div><p className="text-xs text-emerald-600 mt-2">已加入复习知识库</p></details>

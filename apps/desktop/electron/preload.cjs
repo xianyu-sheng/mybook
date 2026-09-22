@@ -140,6 +140,7 @@ const knowmindApi = {
     research: (id) => ipcRenderer.invoke('knowmind:interviews:research', id),
     start: (id) => ipcRenderer.invoke('knowmind:interviews:start', id),
     answer: (id, turnId, answer) => ipcRenderer.invoke('knowmind:interviews:answer', id, turnId, answer),
+    retryAnswer: (id, turnId) => ipcRenderer.invoke('knowmind:interviews:retry-answer', id, turnId),
     finish: (id) => ipcRenderer.invoke('knowmind:interviews:finish', id),
     export: (id) => ipcRenderer.invoke('knowmind:interviews:export', id),
     openSource: (id, url) => ipcRenderer.invoke('knowmind:interviews:open-source', id, url)

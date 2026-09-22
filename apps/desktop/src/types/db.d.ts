@@ -185,6 +185,7 @@ export interface KnowMindApi {
     research: (id: string) => Promise<InterviewSession>
     start: (id: string) => Promise<InterviewSession>
     answer: (id: string, turnId: string, answer: string) => Promise<InterviewSession>
+    retryAnswer: (id: string, turnId: string) => Promise<InterviewSession>
     finish: (id: string) => Promise<InterviewSession>
     export: (id: string) => Promise<{ markdown: string; error: string | null }>
     openSource: (id: string, url: string) => Promise<void>
