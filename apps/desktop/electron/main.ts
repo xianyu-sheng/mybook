@@ -42,6 +42,7 @@ const primaryInstance = app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
 
 let mainWindow: BrowserWindow | null = null
+let revealPending = false
 
 /**
  * Desktop environments can restore a BrowserWindow's old position outside
@@ -50,7 +51,11 @@ let mainWindow: BrowserWindow | null = null
  */
 function revealMainWindow() {
   const window = mainWindow
-  if (!window || window.isDestroyed()) return
+  if (!window || window.isDestroyed()) {
+    revealPending = true
+    return
+  }
+  revealPending = false
   if (window.isMinimized()) window.restore()
   if (!window.isMaximized()) {
     window.center()
@@ -61,6 +66,8 @@ function revealMainWindow() {
 }
 
 app.on('second-instance', () => {
+  // A second click can arrive while the first instance is still registering
+  // IPC handlers. Remember the request so the eventual window is shown.
   revealMainWindow()
 })
 
@@ -83,7 +90,10 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false
     },
-    show: false
+    // Show the native window immediately. Waiting for ready-to-show leaves a
+    // running process with no visible feedback when renderer startup is slow.
+    show: true,
+    backgroundColor: '#f7f8fa'
   })
 
   mainWindow.once('ready-to-show', revealMainWindow)
@@ -123,6 +133,8 @@ function createWindow() {
   } else {
     mainWindow.loadFile(rendererFile)
   }
+
+  if (revealPending) revealMainWindow()
 
   mainWindow.on('closed', () => {
     mainWindow = null
