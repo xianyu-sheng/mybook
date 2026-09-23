@@ -4,7 +4,7 @@
   <p><strong>把项目资料、每一次追问和每一场面试，变成下一次答得更好的准备。</strong></p>
   <p>本地优先的 AI 面试准备桌面应用</p>
   <p>
-    <img alt="版本 0.8.1" src="https://img.shields.io/badge/version-0.8.1-315ac5" />
+    <img alt="版本 0.8.4" src="https://img.shields.io/badge/version-0.8.4-315ac5" />
     <img alt="Electron 与 React" src="https://img.shields.io/badge/Electron%20%2B%20React-desktop-567789" />
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178c6" />
     <img alt="支持 Linux 与 Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-608a75" />
@@ -196,7 +196,7 @@ mybook/
 
 ## 当前状态与后续方向
 
-当前版本为 **0.8.1**。0.8 系列增加多模型、多凭据降级、模拟面试点评的本地保底与 AI 重试，并修复 Linux 桌面窗口启动后不可见的问题。0.7 系列增加多企业隔离的刷题策略、按岗位实时读取牛客/小红书/CodeTop/力扣/灵神题单公开来源、增量追加题目、离线内置题单、由浅入深规划、思路与代码复盘，以及力扣近期提交和牛客统计同步。0.6 系列加入 Windows NAudio/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、策略隔离、题源去重、实时题源适配、复盘解析、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音协议；Windows 原生 helper 由发布流水线编译、运行并检查打包结果，实体耳机和长时间录音仍需在目标设备上验收。
+当前版本为 **0.8.4**。0.8.4 修复模拟面试点评因结构化请求响应较慢而误判为不可用的问题：延长单渠道预算、恢复可校验的流式响应、保留真实的 HTTP 402/404 原因，并在本地保底点评中说明失败原因。0.8 系列增加多模型、多凭据降级、模拟面试点评的本地保底与 AI 重试，并修复 Linux 桌面窗口启动后不可见的问题。0.7 系列增加多企业隔离的刷题策略、按岗位实时读取牛客/小红书/CodeTop/力扣/灵神题单公开来源、增量追加题目、离线内置题单、由浅入深规划、思路与代码复盘，以及力扣近期提交和牛客统计同步。0.6 系列加入 Windows NAudio/WASAPI 双路录音、Windows 安装器、静态 FFmpeg/FFprobe 依赖、旧版本地转写环境迁移，以及 Linux/Windows 发布流水线。测试覆盖迁移、策略隔离、题源去重、实时题源适配、复盘解析、引用、模型降级、答案持久化、卡片操作、录音导入、播放、本地转写、异常恢复和跨平台录音协议；Windows 原生 helper 由发布流水线编译、运行并检查打包结果，实体耳机和长时间录音仍需在目标设备上验收。
 
 以下工作仍在迭代：
 

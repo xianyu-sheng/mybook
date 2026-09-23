@@ -7,7 +7,7 @@ import { generateTextWithFallback } from '../ai/generate.js'
 import { parseInterviewFeedback } from '../ai/structured.js'
 import { knowledgeContext, saveToDisk, selectCitations, citationMarkdown, readCitationSnapshots, historicalCitationText } from '../ai/knowledge.js'
 import { interviewHistoryContext } from '../interview/context.js'
-import { createOfflineInterviewFeedback, isInterviewGenerationFailure, LOCAL_FALLBACK_MODEL } from '../interview/fallback.js'
+import { createOfflineInterviewFeedback, isInterviewGenerationFailure, LOCAL_FALLBACK_MODEL, summarizeInterviewGenerationFailure } from '../interview/fallback.js'
 import { searchResearch } from '../interview/research.js'
 import { deleteInterviewSession } from '../interview/service.js'
 import type { InterviewSession, InterviewTurn, ResearchItem } from '../../src/types/interview.js'
@@ -57,13 +57,18 @@ ${interviewHistoryContext(session.turns)}`
 }
 
 async function askModel(system: string, prompt: string, validate?: (text: string) => void, options: {
-  maxOutputTokens?: number; timeoutMs?: number; totalTimeoutMs?: number; idleTimeoutMs?: number
+  maxOutputTokens?: number; timeoutMs?: number; totalTimeoutMs?: number; idleTimeoutMs?: number; stream?: boolean
 } = {}) {
   const { model, def } = await getActiveModel(getDb())
   return generateTextWithFallback(model, def, {
     system, prompt, maxOutputTokens: options.maxOutputTokens ?? 2200,
-    timeoutMs: options.timeoutMs ?? 20000, totalTimeoutMs: options.totalTimeoutMs ?? 90000,
-    idleTimeoutMs: options.idleTimeoutMs ?? 15000, stream: true, validate
+    // Some compatible gateways buffer the completed JSON response for tens of
+    // seconds, while their SSE stream starts sending useful output earlier.
+    // Keep streaming enabled for interview feedback and give each route enough
+    // time to finish; an incomplete stream is discarded by the shared retry
+    // boundary and the next registered route is tried.
+    timeoutMs: options.timeoutMs ?? 45000, totalTimeoutMs: options.totalTimeoutMs ?? 180000,
+    idleTimeoutMs: options.idleTimeoutMs ?? 25000, stream: options.stream ?? true, validate
   })
 }
 
@@ -72,14 +77,23 @@ async function generateFeedback(session: InterviewSession, turn: InterviewTurn, 
     const { text, usedModel } = await askModel(`你是严谨的中文面试教练，评价本场最后一题的回答。按准确性40%、深度30%、表达20%、岗位契合10%综合评分。指出具体错误与可执行的改进建议。不要因为用户要求高分而改变标准。参考答案不能编造候选人经历。知识总结应写成独立可复习的事实与方法，注明适用条件。下一题基于薄弱点追问或覆盖JD中未问的能力，避免重复。${last ? '这是最后一题，next_question 必须为空。' : '必须给出非空 next_question。'}
 仅输出 JSON：{"score":0到100的整数,"feedback":"具体点评","reference_answer":"参考答案","knowledge":"独立复习知识","next_question":"下一题"}`, input.prompt,
       text => { parseInterviewFeedback(text, last); selectCitations(text, input.citations) },
-      { maxOutputTokens: 2200, timeoutMs: 20000, totalTimeoutMs: 90000, idleTimeoutMs: 12000 })
+      // A full review contains four generated fields and may include the
+      // notebook/JD/interview context. The active route commonly needs more
+      // than 20 seconds before its first complete JSON response. Keep the
+      // request bounded, but allow a slow healthy route to finish before
+      // falling back to another credential.
+      { maxOutputTokens: 2200, timeoutMs: 45000, totalTimeoutMs: 180000, idleTimeoutMs: 25000, stream: true })
     return { feedback: parseInterviewFeedback(text, last), usedModel, local: false }
   } catch (error) {
     if (!isInterviewGenerationFailure(error)) throw error
     // The answer has already been saved. Keep the workflow usable while
     // making it explicit that this is a draft until an AI retry succeeds.
     console.warn('[Mybook interview] AI channels unavailable; using local fallback review')
-    return { feedback: createOfflineInterviewFeedback(turn.question, turn.answer || '', session.role, last), usedModel: LOCAL_FALLBACK_MODEL, local: true }
+    return {
+      feedback: createOfflineInterviewFeedback(turn.question, turn.answer || '', session.role, last, summarizeInterviewGenerationFailure(error)),
+      usedModel: LOCAL_FALLBACK_MODEL,
+      local: true
+    }
   }
 }
 

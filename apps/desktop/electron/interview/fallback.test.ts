@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createOfflineInterviewFeedback, isInterviewGenerationFailure, LOCAL_FALLBACK_MODEL } from './fallback.js'
+import { createOfflineInterviewFeedback, isInterviewGenerationFailure, LOCAL_FALLBACK_MODEL, summarizeInterviewGenerationFailure } from './fallback.js'
 
 describe('offline interview review fallback', () => {
   it('creates an explicitly provisional review and a follow-up question', () => {
@@ -21,5 +21,12 @@ describe('offline interview review fallback', () => {
     expect(isInterviewGenerationFailure(new Error('已到本次任务的时间上限'))).toBe(true)
     expect(isInterviewGenerationFailure(new Error('deepseek 无可用渠道'))).toBe(true)
     expect(isInterviewGenerationFailure(new Error('用户取消操作'))).toBe(false)
+  })
+
+  it('explains recoverable channel failures without exposing credentials', () => {
+    const reason = summarizeInterviewGenerationFailure(new Error('已到本次任务的时间上限：sk-secret（响应超时）；额度不足'))
+    expect(reason).toContain('额度不足')
+    expect(reason).not.toContain('sk-secret')
+    expect(createOfflineInterviewFeedback('问题', '回答', '岗位', true, reason).feedback).toContain('失败原因')
   })
 })

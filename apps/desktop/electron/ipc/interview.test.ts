@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
   fail: true,
   outputs: [] as string[],
+  lastOptions: null as Record<string, unknown> | null,
 }))
 
 vi.mock('electron', () => ({
@@ -20,6 +21,7 @@ vi.mock('../db/connection.js', () => ({ getDb: () => state.db! }))
 vi.mock('../ai/provider.js', () => ({ getActiveModel: async () => ({ model: {}, def: {} }) }))
 vi.mock('../ai/generate.js', () => ({
   generateTextWithFallback: async (_model: unknown, _def: unknown, options: any) => {
+    state.lastOptions = options
     if (state.fail) throw new Error('已到本次任务的时间上限，当前候选渠道均未成功')
     const text = state.outputs.shift()
     if (!text) throw new Error('fixture output missing')
@@ -42,6 +44,7 @@ beforeEach(() => {
   state.db = memoryDb()
   state.fail = true
   state.outputs = []
+  state.lastOptions = null
   outputDir = mkdtempSync(path.join(os.tmpdir(), 'mybook-interview-ipc-'))
   state.db.prepare("INSERT INTO settings(key,value_json) VALUES ('outputDir',?)").run(JSON.stringify(outputDir))
   state.db.prepare("INSERT INTO notebook(id,title) VALUES ('book','面试笔记')").run()
@@ -53,6 +56,7 @@ afterEach(() => { state.db?.close(); rmSync(outputDir, { recursive: true, force:
 describe('interview feedback fallback', () => {
   it('saves a local provisional review and keeps the interview moving when AI routes fail', async () => {
     const session = await invoke('knowmind:interviews:answer', 'session', 'turn', '我会先给出方案，再说明并发、异常和测试。')
+    expect(state.lastOptions).toMatchObject({ stream: true, timeoutMs: 45000, totalTimeoutMs: 180000, idleTimeoutMs: 25000 })
     const turn = session.turns[0]
     expect(turn.model_name).toBe('local-fallback')
     expect(turn.feedback).toContain('AI 渠道暂时不可用')

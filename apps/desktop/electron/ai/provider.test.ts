@@ -87,4 +87,16 @@ describe('live model catalog', () => {
     await refreshModelCatalog([selected])
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+
+  it('keeps a known-good catalog when a later probe is transiently unavailable', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(200, { data: [{ id: 'model-a' }] }))
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+    vi.stubGlobal('fetch', fetch)
+    const stale = { ...selected, key: 'stale', modelName: 'model-old' }
+    await refreshModelCatalog([selected], true)
+    expect(getCachedAvailableModels([selected, stale]).map(model => model.modelName)).toEqual(['model-a'])
+    await refreshModelCatalog([selected], true)
+    expect(getCachedAvailableModels([selected, stale]).map(model => model.modelName)).toEqual(['model-a'])
+  })
 })

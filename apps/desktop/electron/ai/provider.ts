@@ -61,7 +61,7 @@ interface LiveModelCatalog {
 }
 
 const MODEL_CATALOG_TTL = 5 * 60 * 1000
-const MODEL_CATALOG_TIMEOUT = 5000
+const MODEL_CATALOG_TIMEOUT = 10000
 const liveCatalog = new Map<string, LiveModelCatalog>()
 const NON_GENERATIVE_MODEL = /(?:image|embedding|embed|rerank|whisper|tts|dall-e|auto-review)/i
 
@@ -212,6 +212,39 @@ function apiRoot(value: string): string {
   return base.endsWith('/v1') ? base : `${base}/v1`
 }
 
+function redactProviderText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+\-/=]+/gi, 'Bearer [已隐藏凭据]')
+    .replace(/sk-[A-Za-z0-9._~+\-/=]+/gi, 'sk-[已隐藏凭据]')
+}
+
+/**
+ * Keep upstream HTTP failures visible to the retry classifier. Some
+ * OpenAI-compatible gateways return a 402/404 response whose body never
+ * becomes a usable AI SDK stream; returning that response makes the caller
+ * wait until its idle timeout and mislabels the real error as a timeout.
+ */
+async function providerFetch(url: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const start = Date.now()
+  let response: Response
+  try {
+    response = await fetch(url, init)
+  } catch (error: any) {
+    console.error('[KnowMind] fetch 失败:', error?.message || error)
+    throw error
+  }
+  if (!response.ok) {
+    const body = redactProviderText(await response.clone().text())
+    const error = new Error(`AI provider returned HTTP ${response.status}`)
+    Object.assign(error, { statusCode: response.status, responseBody: body })
+    console.error(`[KnowMind] API error ${response.status}:`, body.substring(0, 1000))
+    throw error
+  }
+  const elapsed = Date.now() - start
+  if (elapsed > 5000) console.warn(`[KnowMind] API 请求耗时 ${elapsed}ms: ${String(url)}`)
+  return response
+}
+
 function parseCatalogIds(body: unknown): string[] | undefined {
   if (!body || typeof body !== 'object') return undefined
   const data = (body as { data?: unknown }).data
@@ -251,7 +284,9 @@ async function refreshLiveCatalog(def: ModelDef, force = false): Promise<void> {
       return
     }
     if (!response.ok || [404, 405, 501].includes(response.status)) {
-      liveCatalog.set(key, { checkedAt: Date.now() })
+      // A temporary gateway error must not re-introduce a model that a
+      // previous successful catalog check already removed.
+      liveCatalog.set(key, cached?.modelIds ? { ...cached, checkedAt: Date.now() } : { checkedAt: Date.now() })
       return
     }
     const raw = await response.text()
@@ -260,11 +295,16 @@ async function refreshLiveCatalog(def: ModelDef, force = false): Promise<void> {
     const ids = parseCatalogIds(body)
     // A successful response without a standard data array is treated as an
     // unknown catalog (some compatible gateways do not implement discovery).
-    liveCatalog.set(key, { checkedAt: Date.now(), modelIds: ids ? new Set(ids) : undefined })
+    liveCatalog.set(key, ids
+      ? { checkedAt: Date.now(), modelIds: new Set(ids) }
+      : cached?.modelIds
+        ? { ...cached, checkedAt: Date.now() }
+        : { checkedAt: Date.now() })
   } catch {
     // Offline mode and transient DNS/TLS failures must not hide all configured
-    // models. The normal generation fallback still reports the real failure.
-    liveCatalog.set(key, { checkedAt: Date.now() })
+    // models. Keep a previous successful catalog when available so a transient
+    // probe failure cannot make a removed model eligible again.
+    liveCatalog.set(key, cached?.modelIds ? { ...cached, checkedAt: Date.now() } : { checkedAt: Date.now() })
   } finally {
     clearTimeout(timer)
   }
@@ -346,14 +386,15 @@ export async function createModelClient(def: ModelDef): Promise<LanguageModel> {
     const { createAnthropic } = await import('@ai-sdk/anthropic')
     const client = createAnthropic({
       apiKey: def.apiKey,
-      baseURL: resolvedBaseURL
+      baseURL: resolvedBaseURL,
+      fetch: providerFetch
     })
     return client(def.modelName)
   }
 
   if (def.wireApi === 'responses') {
     const { createOpenAI } = await import('@ai-sdk/openai')
-    return createOpenAI({ apiKey: def.apiKey, baseURL: resolvedBaseURL }).responses(def.modelName)
+    return createOpenAI({ apiKey: def.apiKey, baseURL: resolvedBaseURL, fetch: providerFetch }).responses(def.modelName)
   }
 
   const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible')
@@ -363,25 +404,7 @@ export async function createModelClient(def: ModelDef): Promise<LanguageModel> {
     name: 'custom',
     apiKey: def.apiKey,
     baseURL: resolvedBaseURL,
-    fetch: async (url, init) => {
-      const start = Date.now()
-      let resp: Response
-      try {
-        resp = await fetch(url, init)
-      } catch (fetchErr: any) {
-        console.error('[KnowMind] fetch 失败:', fetchErr.message || fetchErr)
-        throw fetchErr
-      }
-      if (!resp.ok || resp.status >= 400) {
-        const body = await resp.clone().text()
-        console.error(`[KnowMind] API error ${resp.status}:`, body.substring(0, 1000))
-      }
-      const elapsed = Date.now() - start
-      if (elapsed > 5000) {
-        console.warn(`[KnowMind] API 请求耗时 ${elapsed}ms: ${url}`)
-      }
-      return resp
-    }
+    fetch: providerFetch
   })
 
   return api.languageModel(modelName)

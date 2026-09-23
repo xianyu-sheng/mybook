@@ -36,7 +36,7 @@ describe('generation routing', () => {
     expect(mocks.generate.mock.calls[1][0].providerOptions.openai.store).toBe(false)
     expect(mocks.generate.mock.calls[0][0].abortSignal).not.toBe(mocks.generate.mock.calls[1][0].abortSignal)
   })
-  it.each([429, 502, 503, 404])('continues after HTTP %s', async statusCode => {
+  it.each([408, 429, 502, 503, 404])('continues after HTTP %s', async statusCode => {
     mocks.generate.mockRejectedValueOnce(Object.assign(new Error('service error'), { statusCode })).mockResolvedValueOnce({ text: 'ok' })
     expect((await generateTextWithFallback(model, def, opts)).usedModel).toBe('backup')
   })
@@ -76,6 +76,11 @@ describe('generation routing', () => {
     mocks.stream.mockReturnValueOnce(stream([{ type: 'text-delta', text: 'partial' }, { type: 'abort' }]))
       .mockReturnValueOnce(stream([{ type: 'text-delta', text: 'complete' }, { type: 'finish', finishReason: 'stop' }]))
     expect((await generateTextWithFallback(model, def, { ...opts, stream: true })).text).toBe('complete')
+  })
+  it('accepts a complete response when a gateway closes SSE without finish metadata', async () => {
+    const valid = JSON.stringify({ summary: '有效摘要', keyTopics: ['并发'], suggestedQuestions: ['如何加锁？'] })
+    mocks.stream.mockReturnValueOnce(stream([{ type: 'text-delta', text: valid }]))
+    expect((await generateTextWithFallback(model, def, { ...opts, stream: true, validate: text => { parseSourceSummary(text) } })).text).toBe(valid)
   })
   it('detects an idle stream', async () => {
     mocks.stream.mockReturnValueOnce({ fullStream: (async function* () { yield { type: 'text-delta', text: 'partial' }; await new Promise(() => {}) })() })

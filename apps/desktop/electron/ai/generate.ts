@@ -4,13 +4,23 @@ import { createHash } from 'node:crypto'
 import { createModelClient, getAllModelsFromCCSwitch, type ModelDef } from './provider.js'
 
 export function isModelUnavailable(error: any): boolean {
-  if ([401, 403, 429].includes(error?.statusCode)) return false
+  if ([401, 403, 429].includes(errorStatus(error))) return false
   let detail = ''
   try {
-    const body = typeof error?.responseBody === 'string' ? JSON.parse(error.responseBody) : error?.data
+    const raw = error?.responseBody || error?.cause?.responseBody || error?.cause?.cause?.responseBody
+    const body = typeof raw === 'string' ? JSON.parse(raw) : error?.data || error?.cause?.data
     detail = `${body?.error?.code || ''} ${body?.error?.message || ''}`
   } catch { /* A gateway may return HTML. */ }
-  return /model_not_found|no_available_channel|可用渠道不存在|无可用渠道|没有可用渠道|未开通模型|no available channels?|model[^\n]*(?:does not exist|not found|not available)/i.test(`${error?.message || ''} ${detail}`)
+  return /model_not_found|no_available_channel|可用渠道不存在|无可用渠道|没有可用渠道|未开通模型|no available channels?|model[^\n]*(?:does not exist|not found|not available)/i.test(`${error?.message || ''} ${error?.cause?.message || ''} ${detail}`)
+}
+
+function errorStatus(error: any): number {
+  for (const value of [error?.statusCode, error?.cause?.statusCode, error?.cause?.cause?.statusCode,
+    error?.data?.statusCode, error?.cause?.data?.statusCode]) {
+    const status = Number(value)
+    if (Number.isFinite(status) && status > 0) return status
+  }
+  return 0
 }
 
 export class InvalidModelOutput extends Error {}
@@ -92,23 +102,25 @@ function connectionUnavailable(error: any) {
 }
 
 function failure(error: any): { reason: string; scope?: 'credential' | 'service'; terminal?: boolean } {
-  const message = `${error?.message || ''} ${error?.responseBody || ''}`
+  const statusCode = errorStatus(error)
+  const message = `${error?.message || ''} ${error?.cause?.message || ''} ${error?.responseBody || ''} ${error?.cause?.responseBody || ''}`
   if (/content_filter|content_policy|safety_policy|内容审核|内容安全/i.test(message)) return { reason: '内容审核未通过', terminal: true }
-  if (error?.statusCode === 401 || error?.statusCode === 403) return { reason: '凭据或权限不可用', scope: 'credential' }
+  if (statusCode === 401 || statusCode === 403) return { reason: '凭据或权限不可用', scope: 'credential' }
   // 402 is commonly returned by gateways for an account/model quota that is
   // exhausted (for example `insufficient_user_quota`). Treat it as scoped to
   // the current credential so another configured account can still be tried.
   // Keeping the upstream response out of `reason` prevents API keys and raw
   // provider details from leaking into the UI error.
-  if (Number(error?.statusCode) === 402) return { reason: '额度不足', scope: 'credential' }
-  if (error?.statusCode === 429) return { reason: '限流或额度不足' }
+  if (statusCode === 402) return { reason: '额度不足', scope: 'credential' }
+  if (statusCode === 429) return { reason: '限流或额度不足' }
   if (isModelUnavailable(error)) return { reason: '无可用渠道' }
   if (connectionUnavailable(error)) return { reason: '连接中断', scope: 'service' }
+  if (statusCode === 408) return { reason: '响应超时' }
   if (error?.name === 'TimeoutError' || /timeout|timed out/i.test(message)) return { reason: '响应超时' }
   if (error instanceof InvalidModelOutput || /AI_(?:JSONParse|TypeValidation|NoOutputGenerated|NoObjectGenerated)Error/.test(error?.name || '')) return { reason: '结果不完整或格式不符合要求' }
   if (error?.name === 'AbortError' || /abort|premature|terminated|ECONN|fetch failed|network/i.test(message)) return { reason: '连接中断' }
-  if (Number(error?.statusCode) >= 500) return { reason: '服务暂时不可用', ...([502, 503, 504].includes(Number(error.statusCode)) ? { scope: 'service' as const } : {}) }
-  if ([400, 404, 405, 422].includes(error?.statusCode)) return { reason: '接口或请求不兼容' }
+  if (statusCode >= 500) return { reason: '服务暂时不可用', ...([502, 503, 504].includes(statusCode) ? { scope: 'service' as const } : {}) }
+  if ([400, 404, 405, 422].includes(statusCode)) return { reason: '接口或请求不兼容' }
   return { reason: '生成失败', terminal: true }
 }
 
@@ -166,7 +178,7 @@ export async function generateTextWithFallback(
         let text = ''
         if (stream) {
           heartbeat()
-          let complete = false
+          let sawFinish = false
           const result = streamText({ ...request, streamRetries: 0, onError: () => {} })
           for await (const part of result.fullStream) {
             controller.signal.throwIfAborted()
@@ -177,10 +189,15 @@ export async function generateTextWithFallback(
             if (part.type === 'finish') {
               if (part.finishReason === 'content-filter') throw new Error('content_filter')
               if (part.finishReason !== 'stop') throw new InvalidModelOutput('Incomplete model output')
-              complete = true
+              sawFinish = true
             }
           }
-          if (!complete) throw new InvalidModelOutput('Stream ended without completion')
+          // A few OpenAI-compatible gateways close a successful SSE response
+          // without emitting a final `finish` event. The transport ending is
+          // still be a usable completion; structured callers validate the
+          // accumulated text immediately below. An abort or an idle timeout
+          // is raised from the loop above and never reaches here.
+          if (!sawFinish && !text.trim()) throw new InvalidModelOutput('Stream ended without completion')
         } else {
           const result = await generateText(request)
           if (result.finishReason === 'content-filter') throw new Error('content_filter')
