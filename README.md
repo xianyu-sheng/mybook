@@ -81,7 +81,7 @@ flowchart LR
 ## 开始使用
 
 1. **创建笔记本**：按目标岗位或项目组织资料，导入自己的简历、项目说明和学习文档。
-2. **接入模型**：在 [CC Switch](https://github.com/farion1231/cc-switch) 中配置服务，再在 Mybook 设置中选择并测试模型。
+2. **接入模型**：打开设置 →「AI 供应商」，填入服务商的 Base URL、API Key 和模型名并保存。支持 OpenAI 兼容服务（DeepSeek、通义、Kimi、OpenRouter、Ollama 等）和 Anthropic 协议；已装 [CC Switch](https://github.com/farion1231/cc-switch) 的用户也可以继续使用其中的配置。
 3. **补充通用知识**：在全局知识库中导入 [`interview-foundations.json`](repository-packs/interview-foundations.json)，按需同步小林 coding、沉默王二和 JavaGuide，也可以添加自己的仓库。
 4. **带着目标练习**：填写企业、部门和 JD，开始模拟面试；或导入一次真实面试的录音，转写、校对并复盘。
 5. **回到薄弱点**：点击「加入专项练习」，先独立作答，再看参考与点评，下次继续回答同一道题。
@@ -99,17 +99,18 @@ Mybook 采用 Electron + SQLite，在本机保存笔记本、知识卡片、对�
 | 笔记本、问答、练习历史 | 本地 SQLite 数据库 |
 | 刷题策略、题目进度、作答、复盘和平台同步快照 | 本地 SQLite 数据库；同一题的公共元数据可被多套策略复用 |
 | 录音与 Markdown 文档 | 本地文件系统 |
+| AI 供应商与 API Key | 本机 SQLite 的 settings 表；可在设置页增删，不写入仓库或导出文件 |
 | 语音转文字 | 本地 faster-whisper，默认 Whisper small / CPU int8 |
 | AI 问答、卡片、模拟面试和复盘 | 调用使用者配置的模型服务，发送任务需要的文本与检索资料 |
 | 知识仓库同步与公开面经搜索 | 联网访问对应仓库或搜索服务 |
 
-当前模型配置读取 `~/.cc-switch/cc-switch.db`，支持代码中已适配的 Anthropic、OpenAI Chat Completions / Responses 兼容服务。实际可用模型取决于用户的服务配置、权限和额度，源码不绑定单个模型，也不附带 API Key。
+模型配置由使用者在应用内自行添加，支持 Anthropic、OpenAI Chat Completions / Responses 兼容服务。API Key 只写入本机数据库（`userData/knowmind.db`），不会进入源码、安装包或导出文件；应用也兼容本机已有的 CC Switch 配置作为可选项。实际可用模型取决于用户的服务配置、权限和额度，源码不绑定单个模型，也不附带 API Key。
 
 录音文档默认可在所有笔记本中检索，可以在录音详情关闭共享。戴耳机录制系统声音时，需要选择该耳机对应的输出监视器；Windows 使用 WASAPI 回环，Linux 使用 PulseAudio/PipeWire monitor。详细步骤见 [录音与复盘说明](docs/interview-recording.md)。
 
 ## 下载与安装
 
-私有仓库的 [Releases](https://github.com/xianyu-sheng/mybook/releases) 提供每个版本的 Linux AppImage、Linux deb 和 Windows NSIS 安装器，并附 SHA256 校验文件。Windows 安装器允许选择安装目录，卸载时默认保留本地数据库、录音和转写模型。
+[Releases](https://github.com/xianyu-sheng/mybook/releases) 提供每个版本的 Linux AppImage、Linux deb 和 Windows NSIS 安装器，并附 SHA256 校验文件。Windows 安装器允许选择安装目录，卸载时默认保留本地数据库、录音和转写模型。
 
 首次使用本地转写时，应用会在用户数据目录创建 Python 虚拟环境并下载 faster-whisper 与约 500 MB 的 Whisper small 模型。录音、数据库和模型不会打包进安装器，也不会进入 Git 仓库。
 

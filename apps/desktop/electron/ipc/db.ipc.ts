@@ -204,12 +204,18 @@ export function registerDbIpc(): void {
   })
 
   // ---- Settings ----
+  // 供应商凭据只能通过专用 IPC 读写；这里拦截，避免 Key 进入渲染进程或被误覆盖。
+  const SETTINGS_BLOCKED = new Set(['customProviders'])
+  const isBlockedSettingsKey = (key: string) => SETTINGS_BLOCKED.has(key)
+
   ipcMain.handle('knowmind:settings:get', (_event, key: string) => {
+    if (typeof key !== 'string' || isBlockedSettingsKey(key)) return null
     const row = db().prepare('SELECT value_json FROM settings WHERE key = ?').get(key) as any
     return row ? JSON.parse(row.value_json) : null
   })
 
   ipcMain.handle('knowmind:settings:set', (_event, key: string, value: unknown) => {
+    if (typeof key !== 'string' || !key || isBlockedSettingsKey(key)) throw new Error('该设置项只能通过对应功能修改')
     db().prepare(
       'INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at'
     ).run(key, JSON.stringify(value))
@@ -219,6 +225,7 @@ export function registerDbIpc(): void {
     const rows = db().prepare('SELECT key, value_json FROM settings').all() as Array<{ key: string; value_json: string }>
     const result: Record<string, unknown> = {}
     for (const row of rows) {
+      if (isBlockedSettingsKey(row.key) || row.key.startsWith('platform_')) continue
       result[row.key] = JSON.parse(row.value_json)
     }
     return result

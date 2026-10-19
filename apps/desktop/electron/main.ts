@@ -8,6 +8,8 @@ import { registerDocIpc } from './ipc/doc.ipc.js'
 import './ipc/ai.ipc.js'
 import { registerAuthIpc } from './ipc/auth.ipc.js'
 import { getDb, closeDb } from './db/connection.js'
+import { configureCustomProviders } from './ai/provider.js'
+import { readCustomProviders } from './ai/custom.js'
 import { registerInterviewIpc } from './ipc/interview.ipc.js'
 import { registerRepositoryIpc } from './ipc/repository.ipc.js'
 import { recoverInterruptedSyncs, cancelAllSyncs } from './repository/repository.js'
@@ -167,6 +169,7 @@ async function registerIpcHandlers() {
 
   // 初始化数据库
   getDb()
+  configureCustomProviders(() => readCustomProviders(getDb()))
   recoverInterruptedSyncs()
   await recoverRecordings()
   void initializeSpeech()

@@ -1,12 +1,13 @@
 /**
- * AI 模型管理 — 从 CC Switch 数据库自动加载 API Key
+ * AI 模型管理 — 本机配置的供应商优先，兼容历史 CC Switch 配置
  *
- * 数据来源: ~/.cc-switch/cc-switch.db
+ * 首选数据来源: 应用设置页保存的本地供应商（settings 表的 customProviders）
+ * 兼容数据来源: ~/.cc-switch/cc-switch.db
  *   providers 表: settings_config (JSON) → 包含 ANTHROPIC_API_KEY / OPENAI_API_KEY 等
  *   settings 表: currentProviderClaude / currentProviderCodex 等
  *   provider_endpoints 表: base URL
  *
- * 用户只需在 CC Switch 中管理 API Key，KnowMind 自动读取，无需重复配置。
+ * 所有 API Key 只保存在使用者自己的设备上，不会进入源码或导出文件。
  */
 import type { LanguageModel } from 'ai'
 import Database from 'better-sqlite3'
@@ -15,12 +16,25 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse as parseToml } from 'smol-toml'
+import { customProviderModels, type CustomProvider } from './custom.js'
 
 // ---------------------------------------------------------------------------
 // CC Switch 配置路径
 // ---------------------------------------------------------------------------
 const CC_SWITCH_DB = join(homedir(), '.cc-switch', 'cc-switch.db')
 const CC_SWITCH_SETTINGS = join(homedir(), '.cc-switch', 'settings.json')
+
+// 由主进程注入：读取应用设置页保存的本地供应商。测试或纯函数调用时不注入。
+let customProviderSource: (() => CustomProvider[]) | null = null
+
+export function configureCustomProviders(source: () => CustomProvider[]): void {
+  customProviderSource = source
+}
+
+function configuredCustomModels(): ModelDef[] {
+  if (!customProviderSource) return []
+  try { return customProviderModels(customProviderSource()) } catch { return [] }
+}
 
 // ---------------------------------------------------------------------------
 // 模型定义
@@ -150,39 +164,38 @@ export function modelsFromProvider(row: CCProvider, endpointURL = '', active = f
   }))
 }
 
-/** 从 CC Switch DB 读取所有配置的 AI provider。`liveOnly` 只应用已经
- * 完成的实时目录缓存；实时刷新由异步的 getAvailableModelsFromCCSwitch 完成。 */
+/** 读取所有可用模型：优先使用应用内配置的供应商，其次兼容 CC Switch。
+ * `liveOnly` 只应用已经完成的实时目录缓存；实时刷新由异步的
+ * getAvailableModelsFromCCSwitch 完成。 */
 export function getAllModelsFromCCSwitch(liveOnly = false): ModelDef[] {
+  const custom = configuredCustomModels()
   const db = openCCDb()
-  if (!db) {
-    console.warn('[KnowMind] 无法打开 CC Switch 数据库:', CC_SWITCH_DB)
-    return []
-  }
+  const models: ModelDef[] = [...custom]
 
-  const activeIds = new Set(getActiveProviderIds())
-  const models: ModelDef[] = []
-
-  try {
-    // 读取 provider_endpoints 表，构建 provider_id → url 映射
-    const epRows = db.prepare(
-      "SELECT provider_id, url FROM provider_endpoints"
-    ).all() as { provider_id: string; url: string }[]
-    const endpointMap = new Map<string, string>()
-    for (const ep of epRows) {
-      if (!endpointMap.has(ep.provider_id)) {
-        endpointMap.set(ep.provider_id, ep.url)
+  if (db) {
+    const activeIds = new Set(getActiveProviderIds())
+    try {
+      // 读取 provider_endpoints 表，构建 provider_id → url 映射
+      const epRows = db.prepare(
+        "SELECT provider_id, url FROM provider_endpoints"
+      ).all() as { provider_id: string; url: string }[]
+      const endpointMap = new Map<string, string>()
+      for (const ep of epRows) {
+        if (!endpointMap.has(ep.provider_id)) {
+          endpointMap.set(ep.provider_id, ep.url)
+        }
       }
-    }
 
-    const rows = db.prepare(
-      "SELECT id, app_type, name, settings_config FROM providers WHERE settings_config IS NOT NULL AND settings_config != '' ORDER BY sort_index"
-    ).all() as CCProvider[]
+      const rows = db.prepare(
+        "SELECT id, app_type, name, settings_config FROM providers WHERE settings_config IS NOT NULL AND settings_config != '' ORDER BY sort_index"
+      ).all() as CCProvider[]
 
-    for (const row of rows) {
-      models.push(...modelsFromProvider(row, endpointMap.get(row.id), activeIds.has(row.id)))
+      for (const row of rows) {
+        models.push(...modelsFromProvider(row, endpointMap.get(row.id), activeIds.has(row.id)))
+      }
+    } finally {
+      db.close()
     }
-  } finally {
-    db.close()
   }
 
   const withFallbacks = models.map(model => ({ ...model, fallbackModels: configuredFallbacks(model, models) }))
@@ -419,14 +432,14 @@ export async function getActiveModel(db: Database.Database): Promise<{ model: La
   const configuredModels = getAllModelsFromCCSwitch()
   if (configuredModels.length === 0) {
     throw new Error(
-      '未发现可用的 AI 模型。请在 CC Switch 中配置至少一个 Provider 的 API Key。\n\n' +
-      'CC Switch 数据位置: ~/.cc-switch/cc-switch.db'
+      '尚未配置 AI 模型。请打开 设置 → AI 供应商，添加 Base URL、API Key 和模型名后重试。\n\n' +
+      'API Key 只保存在本机数据库中，不会上传或写入仓库。'
     )
   }
 
   const allModels = await getAvailableModelsFromCCSwitch()
   if (allModels.length === 0) {
-    throw new Error('CC Switch 中配置的模型均未通过实时目录检查，可能已下架、未开通或凭据无效。请刷新模型列表或检查 CC Switch 配置。')
+    throw new Error('已配置的模型均未通过可用性检查，可能已下架、未开通或凭据无效。请到 设置 → AI 供应商 检查 Base URL、API Key 与模型名。')
   }
 
   // 从 KnowMind 设置读取用户选择的模型

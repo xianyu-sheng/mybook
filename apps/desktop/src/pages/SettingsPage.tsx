@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download } from 'lucide-react'
+import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound } from 'lucide-react'
 import type { PlatformStatus } from '@/types/db'
 
 interface 模型信息 {
@@ -9,11 +9,37 @@ interface 模型信息 {
   modelName: string
   appType: string
   isCCSwitchActive: boolean
+  isCustom: boolean
   isActive: boolean
+}
+
+interface 供应商信息 {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseURL: string
+  models: string[]
+  wireApi: 'chat' | 'responses'
+  keyHint: string
+  createdAt: string
+}
+
+interface 供应商草稿 {
+  id?: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseURL: string
+  apiKey: string
+  models: string
+  wireApi: 'chat' | 'responses'
 }
 
 export default function SettingsPage() {
   const [模型列表, set模型列表] = useState<模型信息[]>([])
+  const [供应商列表, set供应商列表] = useState<供应商信息[]>([])
+  const [供应商草稿, set供应商草稿] = useState<供应商草稿 | null>(null)
+  const [供应商错误, set供应商错误] = useState('')
+  const [正在保存供应商, set正在保存供应商] = useState(false)
   const [加载中, set加载中] = useState(true)
   const [当前模型, set当前模型] = useState<string>('')
   const [模型搜索, set模型搜索] = useState('')
@@ -34,6 +60,10 @@ export default function SettingsPage() {
         set模型列表(list)
         const active = list.find((m: 模型信息) => m.isActive)
         if (active) set当前模型(active.key)
+
+        try {
+          set供应商列表(await window.knowmind.ai.listProviders())
+        } catch { /* 供应商配置读取失败不影响其他设置 */ }
 
         // 加载输出目录
         const savedDir = await window.knowmind.settings.get('outputDir')
@@ -89,6 +119,59 @@ export default function SettingsPage() {
       alert('选择目录失败: ' + (err.message || String(err)))
     }
   }
+
+  // ---- 本地 AI 供应商（API Key 只存本机数据库）----
+  const 刷新模型与供应商 = async () => {
+    const [models, providers] = await Promise.all([
+      window.knowmind.ai.listModels(),
+      window.knowmind.ai.listProviders(),
+    ])
+    set模型列表(models)
+    set供应商列表(providers)
+    set当前模型(models.find((m: 模型信息) => m.isActive)?.key || '')
+  }
+
+  const 新建供应商 = () => {
+    set供应商错误('')
+    set供应商草稿({ name: '', provider: 'openai', baseURL: '', apiKey: '', models: '', wireApi: 'chat' })
+  }
+
+  const 编辑供应商 = (p: 供应商信息) => {
+    set供应商错误('')
+    set供应商草稿({ id: p.id, name: p.name, provider: p.provider, baseURL: p.baseURL, apiKey: '', models: p.models.join(', '), wireApi: p.wireApi })
+  }
+
+  const 保存供应商 = async () => {
+    if (!供应商草稿) return
+    set正在保存供应商(true)
+    set供应商错误('')
+    try {
+      await window.knowmind.ai.saveProvider(供应商草稿)
+      set供应商草稿(null)
+      await 刷新模型与供应商()
+      set保存提示('供应商已保存，API Key 只写入本机数据库')
+      setTimeout(() => set保存提示(''), 3000)
+    } catch (err: any) {
+      set供应商错误(err.message || String(err))
+    } finally {
+      set正在保存供应商(false)
+    }
+  }
+
+  const 删除供应商 = async (p: 供应商信息) => {
+    if (!confirm(`删除供应商「${p.name}」？本机保存的 API Key 也会一并删除。`)) return
+    try {
+      await window.knowmind.ai.deleteProvider(p.id)
+      if (供应商草稿?.id === p.id) set供应商草稿(null)
+      await 刷新模型与供应商()
+      set保存提示('供应商已删除')
+      setTimeout(() => set保存提示(''), 2500)
+    } catch (err: any) {
+      alert('删除失败: ' + (err.message || String(err)))
+    }
+  }
+
+  const 更新草稿 = (patch: Partial<供应商草稿>) => set供应商草稿(prev => prev ? { ...prev, ...patch } : prev)
 
   // ---- 平台连接 ----
   const 连接平台 = async (platform: string) => {
@@ -174,6 +257,7 @@ export default function SettingsPage() {
       case 'claude-desktop': return 'Claude Desktop'
       case 'codex': return 'OpenAI Codex'
       case 'gemini': return 'Gemini'
+      case 'custom': return '本机供应商'
       default: return t
     }
   }
@@ -190,8 +274,8 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto p-8">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">设置</h1>
       <p className="text-sm text-zinc-500 mb-6">
-        模型和 API Key 自动从 CC Switch 读取，无需手动填写。
-        如需添加或修改 API Key，请在 CC Switch 应用中操作，KnowMind 会自动同步。
+        在下方添加自己的 AI 供应商（OpenAI 兼容或 Anthropic 协议）。API Key 只保存在本机数据库中，
+        不会进入源码仓库、导出文件或同步服务。
       </p>
 
       {保存提示 && (
@@ -335,16 +419,128 @@ export default function SettingsPage() {
       </section>
 
       <section className="mb-8">
-        <div className="flex items-center justify-between mb-3"><h2 className="text-lg font-semibold">模型候选 · {模型列表.length}</h2><button className="text-sm text-primary-600" onClick={async () => { const list = await window.knowmind.ai.listModels(); set模型列表(list); set当前模型(list.find(m => m.isActive)?.key || '') }}>刷新配置</button></div>
-        <p className="text-sm text-zinc-500 mb-3">自动读取 CC Switch 中 Claude、Codex、Hermes 的文字模型。选中的模型优先使用；超时、限流或渠道不可用时自动尝试其他模型。</p>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">AI 供应商 · {供应商列表.length}</h2>
+          {!供应商草稿 && (
+            <button onClick={新建供应商} className="flex items-center gap-1 text-sm text-primary-600">
+              <Plus className="w-4 h-4" />添加供应商
+            </button>
+          )}
+        </div>
+        <p className="text-sm text-zinc-500 mb-3">
+          支持 OpenAI 兼容服务（DeepSeek、通义、Kimi、OpenRouter、Ollama 等）和 Anthropic 协议。
+          模型名可用逗号分隔多个，第一个作为默认，其余用于失败降级。
+        </p>
+
+        {供应商列表.length === 0 && !供应商草稿 && (
+          <div className="p-6 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 text-center">
+            <p className="text-sm text-zinc-500 mb-2">还没有配置 AI 供应商</p>
+            <p className="text-xs text-zinc-400">
+              点击右上角「添加供应商」，填入 Base URL、API Key 和模型名，即可使用 AI 问答、模拟面试和录音复盘。
+            </p>
+          </div>
+        )}
+
+        {供应商列表.map(p => (
+          <div key={p.id} className="p-3 mb-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-sm flex items-center gap-2">
+                  {p.name}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-300">
+                    {p.provider === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'}
+                  </span>
+                </div>
+                <div className="text-xs text-zinc-400 mt-1 break-all">{p.baseURL}</div>
+                <div className="text-xs text-zinc-500 mt-1 break-all">{p.models.join(' / ')}</div>
+                <div className="text-xs text-zinc-400 mt-1 flex items-center gap-1">
+                  <KeyRound className="w-3 h-3" />{p.keyHint}
+                </div>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button aria-label={`编辑 ${p.name}`} onClick={() => 编辑供应商(p)}
+                  className="p-1.5 rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button aria-label={`删除 ${p.name}`} onClick={() => 删除供应商(p)}
+                  className="p-1.5 rounded border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {供应商草稿 && (
+          <div className="p-4 rounded-lg border border-primary-200 dark:border-primary-800 bg-primary-50/40 dark:bg-primary-950/30">
+            <h3 className="font-medium text-sm mb-3">{供应商草稿.id ? '编辑供应商' : '添加供应商'}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="text-xs text-zinc-500">名称
+                <input value={供应商草稿.name} onChange={e => 更新草稿({ name: e.target.value })}
+                  placeholder="我的 DeepSeek" autoComplete="off"
+                  className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500" />
+              </label>
+              <label className="text-xs text-zinc-500">协议
+                <select value={供应商草稿.provider} onChange={e => 更新草稿({ provider: e.target.value as 'openai' | 'anthropic' })}
+                  className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500">
+                  <option value="openai">OpenAI 兼容</option>
+                  <option value="anthropic">Anthropic</option>
+                </select>
+              </label>
+            </div>
+            <label className="block mt-3 text-xs text-zinc-500">Base URL
+              <input value={供应商草稿.baseURL} onChange={e => 更新草稿({ baseURL: e.target.value })}
+                placeholder={供应商草稿.provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.deepseek.com/v1'} autoComplete="off"
+                className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500" />
+            </label>
+            <label className="block mt-3 text-xs text-zinc-500">API Key
+              <input type="password" value={供应商草稿.apiKey} onChange={e => 更新草稿({ apiKey: e.target.value })}
+                placeholder={供应商草稿.id ? '留空则沿用已保存的 Key' : 'sk-...'} autoComplete="new-password"
+                className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500 font-mono" />
+            </label>
+            <label className="block mt-3 text-xs text-zinc-500">模型名（逗号分隔，可填多个）
+              <input value={供应商草稿.models} onChange={e => 更新草稿({ models: e.target.value })}
+                placeholder="deepseek-chat, deepseek-reasoner" autoComplete="off"
+                className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500 font-mono" />
+            </label>
+            {供应商草稿.provider === 'openai' && (
+              <label className="block mt-3 text-xs text-zinc-500">接口模式
+                <select value={供应商草稿.wireApi} onChange={e => 更新草稿({ wireApi: e.target.value as 'chat' | 'responses' })}
+                  className="mt-1 w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 outline-none focus:border-primary-500">
+                  <option value="chat">Chat Completions（多数兼容服务）</option>
+                  <option value="responses">Responses（OpenAI 新接口）</option>
+                </select>
+              </label>
+            )}
+            {供应商错误 && <p className="mt-3 text-xs text-red-500">{供应商错误}</p>}
+            <p className="mt-3 text-xs text-zinc-400">
+              API Key 会以明文存放在本机数据库（userData/knowmind.db），不会上传或写入仓库。
+            </p>
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { set供应商草稿(null); set供应商错误('') }}
+                className="px-3 py-2 text-sm rounded-md border border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-700">
+                取消
+              </button>
+              <button onClick={保存供应商} disabled={正在保存供应商}
+                className="flex items-center gap-1 px-3 py-2 text-sm rounded-md bg-primary-500 hover:bg-primary-600 text-white disabled:opacity-50">
+                {正在保存供应商 && <Loader2 className="w-3.5 h-3.5 animate-spin" />}保存
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3"><h2 className="text-lg font-semibold">模型候选 · {模型列表.length}</h2><button className="text-sm text-primary-600" onClick={async () => { await 刷新模型与供应商() }}>刷新配置</button></div>
+        <p className="text-sm text-zinc-500 mb-3">上方配置的供应商优先；如本机装有 CC Switch，也会一并读取其中 Claude、Codex、Hermes 的模型。选中的模型优先使用；超时、限流或渠道不可用时自动尝试同一供应商的其他模型。</p>
         <input aria-label="搜索模型" value={模型搜索} onChange={e => set模型搜索(e.target.value)} placeholder="搜索模型或供应商" className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-transparent p-2 text-sm mb-3" />
 
         {模型列表.length === 0 ? (
           <div className="p-6 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 text-center">
             <p className="text-sm text-zinc-500 mb-2">未检测到可用模型</p>
             <p className="text-xs text-zinc-400">
-              请在 CC Switch 中添加 Provider 并配置 API Key。
-              支持 Claude Code、OpenAI Codex 和 Hermes 类型的 Provider。
+              请在上方「AI 供应商」中添加 Base URL、API Key 和模型名后保存。
+              已安装 CC Switch 的用户也会自动读取其中的 Provider。
             </p>
           </div>
         ) : (
@@ -372,6 +568,11 @@ export default function SettingsPage() {
                         {m.isCCSwitchActive && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400">
                             CC Switch 当前
+                          </span>
+                        )}
+                        {m.isCustom && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400">
+                            本机配置
                           </span>
                         )}
                         {当前模型 === m.key && (
@@ -437,14 +638,15 @@ export default function SettingsPage() {
         <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
           <h3 className="font-medium mb-1">配置来源</h3>
           <p className="text-sm text-zinc-500">
-            KnowMind 从 CC Switch 数据库自动读取所有 Provider：
+            AI 供应商和 API Key 保存位置：
           </p>
           <ul className="mt-2 space-y-1 text-sm text-zinc-500">
-            <li>· <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">~/.cc-switch/cc-switch.db</code> — Provider 和 API Key</li>
-            <li>· <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">~/.cc-switch/settings.json</code> — 当前活跃的 Provider</li>
+            <li>· <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">userData/knowmind.db</code> — 设置页添加的供应商（本机 SQLite）</li>
+            <li>· <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">~/.cc-switch/cc-switch.db</code> — 可选的 CC Switch 兼容来源</li>
           </ul>
           <p className="text-sm text-zinc-400 mt-3">
-            所有数据均存储在你的本地设备上，不会上传到任何第三方服务器。
+            数据库只在你的设备上，不随仓库或安装包分发。API Key 不会回传到界面，也不会写入导出文件。
+            如设备可能被他人使用，请自行评估本机数据库的访问权限。
           </p>
         </div>
       </section>

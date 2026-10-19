@@ -163,8 +163,11 @@ export interface KnowMindApi {
     query: (notebookId: string, question: string) => Promise<AiAnswer>
     listModels: () => Promise<Array<{
       key: string; name: string; provider: 'openai' | 'anthropic'
-      modelName: string; appType: string; isCCSwitchActive: boolean; isActive: boolean
+      modelName: string; appType: string; isCCSwitchActive: boolean; isCustom: boolean; isActive: boolean
     }>>
+    listProviders: () => Promise<AiProviderInfo[]>
+    saveProvider: (input: AiProviderInput) => Promise<AiProviderInfo[]>
+    deleteProvider: (id: string) => Promise<AiProviderInfo[]>
     setActiveModel: (modelKey: string) => Promise<boolean>
     testConnection: (modelKey: string) => Promise<boolean>
   }
@@ -235,6 +238,27 @@ export interface PlatformStatus {
   github: { connected: boolean; username?: string }
   leetcode: { connected: boolean; username?: string }
   nowcoder: { connected: boolean; username?: string }
+}
+
+export interface AiProviderInfo {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseURL: string
+  models: string[]
+  wireApi: 'chat' | 'responses'
+  keyHint: string
+  createdAt: string
+}
+
+export interface AiProviderInput {
+  id?: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseURL: string
+  apiKey?: string
+  models: string
+  wireApi?: 'chat' | 'responses'
 }
 
 export interface AuthResult {

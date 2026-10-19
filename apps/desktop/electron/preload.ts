@@ -123,6 +123,11 @@ const knowmindApi = {
     query: (notebookId: string, question: string) =>
       ipcRenderer.invoke('knowmind:ai:query', notebookId, question),
     listModels: () => ipcRenderer.invoke('knowmind:ai:list-models'),
+    listProviders: () => ipcRenderer.invoke('knowmind:ai:providers:list'),
+    saveProvider: (input: unknown) =>
+      ipcRenderer.invoke('knowmind:ai:providers:save', input),
+    deleteProvider: (id: string) =>
+      ipcRenderer.invoke('knowmind:ai:providers:delete', id),
     setActiveModel: (modelKey: string) =>
       ipcRenderer.invoke('knowmind:ai:set-active-model', modelKey),
     testConnection: (modelKey: string) =>

@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { getDb } from '../db/connection.js'
 import { getActiveModel, getAllModelsFromCCSwitch, getAvailableModelsFromCCSwitch, createModelClient, resolveModelDefinition } from '../ai/provider.js'
+import { deleteCustomProvider, readCustomProviders, saveCustomProvider, toPublicProvider } from '../ai/custom.js'
 import type { ModelDef } from '../ai/provider.js'
 import type { LanguageModel } from 'ai'
 import { citationMarkdown, historicalCitationText, knowledgeContext, readCitationSnapshots, selectCitations, saveToDisk as saveKnowledgeFile } from '../ai/knowledge.js'
@@ -355,8 +356,23 @@ ipcMain.handle('knowmind:ai:list-models', async () => {
     modelName: m.modelName,
     appType: m.appType,
     isCCSwitchActive: m.isCCSwitchActive,
+    isCustom: m.appType === 'custom',
     isActive: m.key === active?.key
   }))
+})
+
+// ---- 本地 AI 供应商配置 ----
+ipcMain.handle('knowmind:ai:providers:list', () => {
+  return readCustomProviders(getDb()).map(toPublicProvider)
+})
+
+ipcMain.handle('knowmind:ai:providers:save', (_event, input: unknown) => {
+  return saveCustomProvider(getDb(), input)
+})
+
+ipcMain.handle('knowmind:ai:providers:delete', (_event, id: string) => {
+  if (typeof id !== 'string' || !id) throw new Error('供应商 ID 无效')
+  return deleteCustomProvider(getDb(), id)
 })
 
 // ---- 设置活跃模型 ----
