@@ -188,7 +188,10 @@ export async function generateTextWithFallback(
             if (part.type === 'abort') throw controller.signal.reason || new DOMException('Stream aborted', 'AbortError')
             if (part.type === 'finish') {
               if (part.finishReason === 'content-filter') throw new Error('content_filter')
-              if (part.finishReason !== 'stop') throw new InvalidModelOutput('Incomplete model output')
+              // 结构化输出允许把被截断的文本交给 validate 抢救；纯文本调用仍视为不完整。
+              if (part.finishReason !== 'stop' && !(part.finishReason === 'length' && validate)) {
+                throw new InvalidModelOutput('Incomplete model output')
+              }
               sawFinish = true
             }
           }
@@ -201,7 +204,9 @@ export async function generateTextWithFallback(
         } else {
           const result = await generateText(request)
           if (result.finishReason === 'content-filter') throw new Error('content_filter')
-          if (result.finishReason && result.finishReason !== 'stop') throw new InvalidModelOutput('Incomplete model output')
+          if (result.finishReason && result.finishReason !== 'stop' && !(result.finishReason === 'length' && validate)) {
+            throw new InvalidModelOutput('Incomplete model output')
+          }
           text = result.text
         }
         controller.signal.throwIfAborted()

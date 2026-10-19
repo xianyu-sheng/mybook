@@ -7,7 +7,11 @@ export interface RecordingQuestion {
   /** Retrieval references for this question; not a claim that the model used every source. */
   citations?: Array<{ ref: string; title: string; id?: string; url?: string }>
 }
-export interface RecordingReport { questions: RecordingQuestion[]; score: number | null; summaries: string[]; created_at: string }
+export interface RecordingReport {
+  questions: RecordingQuestion[]; score: number | null; summaries: string[]; created_at: string
+  /** 仅复盘中断时存在：已完成窗口数、总窗口数与转写指纹，用于断点续跑。 */
+  progress?: { completedBatches: number; totalBatches: number; fingerprint: string }
+}
 export interface RecordingInput { title: string; notebook_id: string | null; company: string; role: string; jd: string; tags: string[] }
 export interface Recording extends RecordingInput {
   id: string; status: RecordingStatus; duration: number; created_at: string; started_at: string | null

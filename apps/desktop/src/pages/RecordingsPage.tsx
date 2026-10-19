@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Mic, Monitor, Square, Plus, Upload, RefreshCw, Download, Trash2, FileText, Sparkles, Search, Play, Pencil, Save, X, Loader2, Check, ChevronLeft, ChevronRight, Headphones } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -7,6 +7,7 @@ import { useRecordingState } from '@/hooks/useRecordingState'
 import { useRecordingDraft, clearRecordingDraft, normalizeRecordingInput, RECORDING_SAVED_EVENT } from '@/hooks/useRecordingDraft'
 import PracticeButton from '@/components/PracticeButton'
 import TargetPicker from '@/components/TargetPicker'
+import { groupTranscript } from '@/lib/transcript'
 import type { AudioDevice, Recording, RecordingInput } from '@/types/recording'
 import type { Notebook } from '@/types/db'
 
@@ -137,6 +138,7 @@ function RecordingDetail({ record, notebooks, busy, canProcess, ready, run, remo
   const { metadata, setMetadata, setSegments } = draft
   const segments = draft.segments || []
   const editing = draft.segments !== null
+  const grouped = useMemo(() => groupTranscript(record.segments), [record.segments])
   const [confirmTranscribe, setConfirmTranscribe] = useState(false)
   const transcribeDialog = useRef<HTMLDialogElement>(null)
   const [language, setLanguage] = useState('zh')
@@ -153,7 +155,7 @@ function RecordingDetail({ record, notebooks, busy, canProcess, ready, run, remo
     void player.play().catch(console.error)
   }
   const perPage = 30
-  const rows = editing ? segments : record.segments
+  const rows = editing ? segments : grouped
   useEffect(() => { setPage(p => Math.min(p, Math.max(0, Math.ceil(rows.length / perPage) - 1))) }, [rows.length])
   useEffect(() => { if (confirmTranscribe) transcribeDialog.current?.showModal(); else transcribeDialog.current?.close() }, [confirmTranscribe])
   return <section aria-label="录音详情" className="min-w-0">
@@ -168,15 +170,16 @@ function RecordingDetail({ record, notebooks, busy, canProcess, ready, run, remo
     <label className="inline-flex items-center gap-2 text-xs text-zinc-500 my-3"><input type="checkbox" checked={record.shared} disabled={busy || Boolean(metadata)} onChange={e => run(() => window.knowmind.recordings.update(record.id, { ...record, shared: e.target.checked }))} />参与所有笔记本的知识检索</label>
     {record.error && <p role="alert" className="text-sm text-amber-700 border-l-2 border-amber-500 pl-3 mb-3 break-words whitespace-pre-wrap">{record.error}</p>}
     {record.export_error && <p className="text-xs text-amber-700 mb-3">{record.export_error}</p>}
+    {record.report?.progress && <p className="text-sm text-blue-600 border-l-2 border-blue-500 pl-3 mb-3">已保存 {record.report.progress.completedBatches}/{record.report.progress.totalBatches} 个分析窗口（{record.report.questions.length} 道问答），再次点击「继续复盘」会从断点接着分析。</p>}
     {!['recording', 'importing'].includes(record.status) && record.duration > 0 && <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3 mb-4">{record.tracks.map(track => <div key={track.kind} className="min-w-0"><p className="text-xs text-zinc-500 mb-1">{track.label}</p><audio aria-label={track.label} ref={element => { players.current[track.kind] = element }} onPlay={event => pauseOtherTracks(event.currentTarget)} controls preload="metadata" src={`mybook-audio://recording/${record.id}/${track.kind}?duration=${record.duration}`} className="w-full h-9" /></div>)}</div>}
     <div className="flex flex-wrap gap-2 items-center py-3 border-y border-zinc-200 dark:border-zinc-700">
       <select aria-label="转写语言" className="text-xs rounded-md border border-zinc-300 dark:border-zinc-700 p-2 bg-transparent" value={language} onChange={e => setLanguage(e.target.value)}><option value="zh">中文</option><option value="en">英语</option><option value="auto">自动识别</option></select>
       <button className={`${command} text-blue-600`} disabled={!canProcess || !ready || Boolean(draft.draft)} onClick={() => { if (record.segments.length || record.report) setConfirmTranscribe(true); else void run(() => window.knowmind.recordings.transcribe(record.id, language)) }}><FileText size={15} />{record.segments.length ? '重新转写' : '本地转写'}</button>
-      <button className={primary} disabled={!canProcess || !record.segments.length || Boolean(draft.draft)} title="将转写文本和关联项目资料发送给已配置的 AI 模型" onClick={() => run(async () => { await window.knowmind.recordings.analyze(record.id); setTab('analysis') })}><Sparkles size={15} />{record.report ? '重新复盘' : 'AI 面试复盘'}</button>
+      <button className={primary} disabled={!canProcess || !record.segments.length || Boolean(draft.draft)} title="将转写文本和关联项目资料发送给已配置的 AI 模型" onClick={() => run(async () => { await window.knowmind.recordings.analyze(record.id); setTab('analysis') })}><Sparkles size={15} />{record.report?.progress ? '继续复盘' : record.report ? '重新复盘' : 'AI 面试复盘'}</button>
     </div>
-    <div role="tablist" aria-label="录音文档" className="flex gap-4 border-b border-zinc-200 dark:border-zinc-700 mb-4">{[{ id: 'transcript', label: `转写 ${record.segments.length}` }, { id: 'analysis', label: `答题复盘 ${record.report?.questions.length || 0}` }].map(item => <button key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`text-sm py-3 border-b-2 ${tab === item.id ? 'text-blue-600 border-blue-600' : 'text-zinc-500 border-transparent'}`}>{item.label}</button>)}</div>
+    <div role="tablist" aria-label="录音文档" className="flex gap-4 border-b border-zinc-200 dark:border-zinc-700 mb-4">{[{ id: 'transcript', label: `转写 ${rows.length}` }, { id: 'analysis', label: `答题复盘 ${record.report?.questions.length || 0}` }].map(item => <button key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`text-sm py-3 border-b-2 ${tab === item.id ? 'text-blue-600 border-blue-600' : 'text-zinc-500 border-transparent'}`}>{item.label}</button>)}</div>
     {tab === 'transcript' ? <>
-      {record.segments.length > 0 && <div className="flex flex-wrap justify-between items-center gap-2 mb-3"><span className="text-xs text-zinc-500">{time(record.duration)} · {rows.length} 个片段</span><div className="flex gap-1">{editing ? <><button className={command} onClick={draft.clear} disabled={busy}>放弃草稿</button><button className={primary} disabled={busy || draft.conflict} onClick={() => run(async () => { draft.saved(await window.knowmind.recordings.saveTranscript(record.id, segments)) })}><Save size={14} />保存校对</button></> : <button className={`${command} text-blue-600`} disabled={busy || Boolean(metadata)} onClick={() => setSegments(record.segments.map(s => ({ ...s })))}><Pencil size={14} />校对文字 / 说话人</button>}</div></div>}
+      {record.segments.length > 0 && <div className="flex flex-wrap justify-between items-center gap-2 mb-3"><span className="text-xs text-zinc-500">{time(record.duration)} · {rows.length} 段</span><div className="flex gap-1">{editing ? <><button className={command} onClick={draft.clear} disabled={busy}>放弃草稿</button><button className={primary} disabled={busy || draft.conflict} onClick={() => run(async () => { draft.saved(await window.knowmind.recordings.saveTranscript(record.id, segments)) })}><Save size={14} />保存校对</button></> : <button className={`${command} text-blue-600`} disabled={busy || Boolean(metadata)} onClick={() => setSegments(record.segments.map(s => ({ ...s })))}><Pencil size={14} />校对文字 / 说话人</button>}</div></div>}
       {!rows.length && <p className="py-8 text-sm text-zinc-500 text-center">暂无转写文档</p>}
       <div className="divide-y divide-zinc-200 dark:divide-zinc-800">{rows.slice(page * perPage, (page + 1) * perPage).map(segment => <div key={segment.id} className="py-3 flex items-start gap-3">
         <button title="播放此片段" aria-label={`播放 ${time(segment.start)}`} className="text-xs text-blue-600 shrink-0 pt-1 w-14 inline-flex items-center gap-1" onClick={() => playSegment(segment.track, segment.start)}><Play size={12} />{time(segment.start)}</button>
@@ -189,7 +192,7 @@ function RecordingDetail({ record, notebooks, busy, canProcess, ready, run, remo
       <div className="space-y-3">{record.report.questions.map((question, i) => <details key={i} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900" open={i === 0}>
         <summary className="p-3 cursor-pointer text-sm font-medium break-words">{i + 1}. {question.question}<span className="text-xs text-emerald-700 ml-2">{question.score} 分</span></summary>
         <div className="px-4 pb-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3 text-sm pt-3"><p className="text-xs text-zinc-500">我的回答</p><p className="break-words whitespace-pre-wrap">{question.answer}</p>
-          <div className="flex flex-wrap gap-2">{question.evidence.map(id => { const s = record.segments.find(s => s.id === id); return s ? <button key={id} className="text-xs text-blue-600" onClick={() => { setTab('transcript'); setPage(Math.floor(record.segments.indexOf(s) / perPage)); playSegment(s.track, s.start) }}>录音 {time(s.start)}</button> : null })}</div>
+          <div className="flex flex-wrap gap-2">{question.evidence.map(id => { const s = record.segments.find(s => s.id === id); return s ? <button key={id} className="text-xs text-blue-600" onClick={() => { setTab('transcript'); const groupIndex = grouped.findIndex(group => group.segmentIds.includes(s.id)); setPage(Math.floor(Math.max(0, groupIndex) / perPage)); playSegment(s.track, s.start) }}>录音 {time(s.start)}</button> : null })}</div>
           {question.strengths.map((s, n) => <p key={n} className="flex gap-2 text-emerald-700 dark:text-emerald-400"><Check size={14} className="shrink-0 mt-1" />{s}</p>)}
           <h3 className="text-xs text-amber-700 font-semibold">答题缺陷与改进</h3><ul className="list-disc pl-4 space-y-1">{question.gaps.map((gap, n) => <li key={n} className="break-words">{gap}</li>)}</ul>
           <h3 className="text-xs text-blue-600 font-semibold">标准要点与参考答案</h3><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{question.reference_answer}</ReactMarkdown></div>

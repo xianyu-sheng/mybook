@@ -6,12 +6,12 @@ import { existsSync } from 'node:fs'
 import { mkdir, writeFile, rm, stat } from 'node:fs/promises'
 import { z } from 'zod'
 import { getDb } from '../db/connection.js'
-import type { AudioTrack, Recording, RecordingInput, RecordingState, TranscriptSegment } from '../../src/types/recording.js'
+import type { AudioTrack, Recording, RecordingInput, RecordingReport, RecordingState, TranscriptSegment } from '../../src/types/recording.js'
 import { audioDevices, captureArgs, duration, recoverDuration, runProcess } from './audio.js'
 import { ffmpegCommand, windowsAudioCommand } from './media.js'
 import { checkSpeech, prepareSpeech, speechReady, transcribeAudio } from './speech.js'
 import { analyzeRecording } from './analysis.js'
-import { indexRecording, recordingMarkdown } from './documents.js'
+import { indexRecording, mergeTranscriptSegments, recordingMarkdown } from './documents.js'
 
 export const recordingInput = z.object({
   title: z.string().trim().min(1).max(160), notebook_id: z.string().uuid().nullable(),
@@ -252,7 +252,8 @@ async function runJob(id: string, stage: string, task: (signal: AbortSignal) => 
   try { await task(job.abort.signal) }
   catch (error: any) {
     const record = getRecording(id)
-    getDb().prepare('UPDATE recording SET status=?,error=? WHERE id=?').run(record.report ? 'ready' : record.segments.length ? 'transcribed' : record.duration ? 'recorded' : 'error', String(error?.message || error).slice(0, 2500), id)
+    const completeReport = record.report && !record.report.progress
+    getDb().prepare('UPDATE recording SET status=?,error=? WHERE id=?').run(completeReport ? 'ready' : record.segments.length ? 'transcribed' : record.duration ? 'recorded' : 'error', String(error?.message || error).slice(0, 2500), id)
     throw error
   } finally { job = null; notify() }
 }
@@ -262,17 +263,34 @@ export async function transcribeRecording(id: string, language: string) {
   await runJob(id, '加载本地转写模型', async signal => {
     getDb().prepare("UPDATE recording SET status='transcribing' WHERE id=?").run(id)
     const dir = recordingDirectory(id)
-    const segments = await transcribeAudio(dir, record.tracks.map(t => ({ kind: t.kind, path: trackFilePath(dir, t.kind) })), language, signal, progress)
+    const segments = mergeTranscriptSegments(await transcribeAudio(dir, record.tracks.map(t => ({ kind: t.kind, path: trackFilePath(dir, t.kind) })), language, signal, progress))
     signal.throwIfAborted()
     commitRecording(id, () => { getDb().prepare("UPDATE recording SET transcript_json=?,report_json=NULL,status='transcribed',updated_at=datetime('now') WHERE id=?").run(JSON.stringify(segments), id) })
     await saveDocument(id)
   })
 }
 export async function analyze(id: string) {
-  const record = getRecording(id)
   await runJob(id, '准备面试复盘', async signal => {
     getDb().prepare("UPDATE recording SET status='analyzing' WHERE id=?").run(id)
-    const report = await analyzeRecording(getDb(), record, signal, progress)
+    let record = getRecording(id)
+    // 老版本的转写按停顿切得很碎；分析前先合并成可读段落，减少窗口数和
+    // 模型调用次数。已有复盘时保持原片段，避免破坏 evidence 引用。
+    if (!record.report) {
+      const merged = mergeTranscriptSegments(record.segments)
+      if (merged.length !== record.segments.length) {
+        signal.throwIfAborted()
+        commitRecording(id, () => { getDb().prepare("UPDATE recording SET transcript_json=?,updated_at=datetime('now') WHERE id=?").run(JSON.stringify(merged), id) })
+        await saveDocument(id)
+        notify()
+        record = getRecording(id)
+      }
+    }
+    // 每完成一个窗口就落盘；模型或网络中断时已分析好的题目不会丢。
+    const savePartial = (partial: RecordingReport) => {
+      getDb().prepare("UPDATE recording SET report_json=?,updated_at=datetime('now') WHERE id=?").run(JSON.stringify(partial), id)
+      notify()
+    }
+    const report = await analyzeRecording(getDb(), record, signal, progress, savePartial)
     signal.throwIfAborted()
     commitRecording(id, () => { getDb().prepare("UPDATE recording SET report_json=?,status='ready',updated_at=datetime('now') WHERE id=?").run(JSON.stringify(report), id) })
     await saveDocument(id)
@@ -334,7 +352,7 @@ export async function recoverRecordings() {
     const record = getRecording(id)
     const lengths = await Promise.allSettled(record.tracks.map(t => recoverDuration(trackFilePath(recordingDirectory(id), t.kind))))
     const seconds = Math.max(record.duration, ...lengths.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
-    commitRecording(id, () => { getDb().prepare("UPDATE recording SET status=?,duration=?,error=? WHERE id=?").run(record.report ? 'ready' : record.segments.length ? 'transcribed' : seconds ? 'recorded' : 'error', seconds,
+    commitRecording(id, () => { getDb().prepare("UPDATE recording SET status=?,duration=?,error=? WHERE id=?").run(record.report && !record.report.progress ? 'ready' : record.segments.length ? 'transcribed' : seconds ? 'recorded' : 'error', seconds,
       '上次处理被中断，原始音频已保留，请试听后重试。', id) })
     await saveDocument(id)
   }

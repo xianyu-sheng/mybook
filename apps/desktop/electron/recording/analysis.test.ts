@@ -6,7 +6,7 @@ import { generateTextWithFallback } from '../ai/generate.js'
 import { knowledgeContext } from '../ai/knowledge.js'
 import { matchQuery } from '../repository/index.js'
 import type Database from 'better-sqlite3'
-import type { Recording, TranscriptSegment } from '../../src/types/recording.js'
+import type { Recording, RecordingReport, TranscriptSegment } from '../../src/types/recording.js'
 vi.mock('../ai/provider.js', () => ({ getActiveModel: vi.fn(), getAllModelsFromCCSwitch: vi.fn(), createModelClient: vi.fn() }))
 vi.mock('../ai/generate.js', () => ({ generateTextWithFallback: vi.fn(), InvalidModelOutput: class extends Error {} }))
 vi.mock('../ai/knowledge.js', () => ({ knowledgeContext: vi.fn() }))
@@ -15,17 +15,23 @@ const segment = (id: number, text: string): TranscriptSegment => ({ id, text, sp
 describe('interview evidence and windowing', () => {
   it('accepts scores grounded in actual segment IDs', () => {
     expect(parseRecordingAnalysis(JSON.stringify(valid), [2]).questions[0].score).toBe(42)
-    expect(() => parseRecordingAnalysis(JSON.stringify(valid), [0, 1])).toThrow('不存在')
+    expect(parseRecordingAnalysis(JSON.stringify(valid), [0, 1]).questions).toEqual([])
   })
   it('permits no score when there is no answer', () => {
     expect(parseRecordingAnalysis(JSON.stringify({ summary: '只有提问，尚无回答', questions: [] }), [1]).questions).toEqual([])
   })
-  it.each([-1, 101, 1.5])('rejects invalid score %s', score => {
-    expect(() => parseRecordingAnalysis(JSON.stringify({ ...valid, questions: [{ ...valid.questions[0], score }] }), [2])).toThrow()
+  it.each([[-1, 0], [101, 100], [1.5, 2]])('clamps invalid score %s to %s', (score, expected) => {
+    expect(parseRecordingAnalysis(JSON.stringify({ ...valid, questions: [{ ...valid.questions[0], score }] }), [2]).questions[0].score).toBe(expected)
   })
-  it('requires concrete feedback and complete JSON', () => {
-    expect(() => parseRecordingAnalysis(JSON.stringify({ ...valid, questions: [{ ...valid.questions[0], gaps: [] }] }), [2])).toThrow()
+  it('fills missing feedback and rejects unparseable JSON', () => {
+    expect(parseRecordingAnalysis(JSON.stringify({ ...valid, questions: [{ ...valid.questions[0], gaps: [] }] }), [2]).questions[0].gaps.length).toBeGreaterThan(0)
     expect(() => parseRecordingAnalysis('{"summary":', [2])).toThrow()
+  })
+  it('salvages complete questions from a truncated response', () => {
+    const full = JSON.stringify({ ...valid, questions: [valid.questions[0], { ...valid.questions[0], question: '第二题' }] })
+    const result = parseRecordingAnalysis(full.slice(0, full.length - 30), [2])
+    expect(result.summary).toBe('需要补充原理')
+    expect(result.questions.map(question => question.question)).toEqual(['如何去重？'])
   })
   it('bounds long utterances and retains evidence IDs and tail', () => {
     const input = [segment(0, '甲'.repeat(10000)), segment(1, '乙'.repeat(18000)), segment(2, '末尾答案')]
@@ -119,18 +125,52 @@ describe('recording review context and continued answers', () => {
   })
   it('merges new text from a long utterance even when the evidence ID stays the same', async () => {
     const value = record([segment(0, '甲'.repeat(7000) + '末尾的数据库唯一约束')])
-    modelResponses(reply({ evidence: [0] }), reply({ answer: '末尾的数据库唯一约束', score: 90, evidence: [0] }))
+    modelResponses(reply({ evidence: [0] }), reply({ evidence: [0] }), reply({ evidence: [0] }), reply({ answer: '末尾的数据库唯一约束', score: 90, evidence: [0] }))
     const report = await analyzeRecording(fakeDb, value, new AbortController().signal, () => {})
     expect(report.questions).toHaveLength(1)
     expect(report.questions[0].answer).toContain('末尾的数据库唯一约束')
     expect(report.questions[0].score).toBe(90)
   })
-  it('rejects invented evidence during a continued answer', async () => {
+  it('drops invented evidence but keeps the grounded answer', async () => {
     modelResponses(reply(), reply({ evidence: [59, 600] }))
-    await expect(analyzeRecording(fakeDb, longRecord(), new AbortController().signal, () => {})).rejects.toThrow('不存在')
+    const report = await analyzeRecording(fakeDb, longRecord(), new AbortController().signal, () => {})
+    expect(report.questions).toHaveLength(1)
+    expect(report.questions[0].evidence).toEqual([57, 59])
+    expect(report.questions[0].score).toBe(30)
   })
-  it('rejects reference numbers that have no corresponding retrieved source', async () => {
+  it('strips reference numbers that have no corresponding retrieved source', async () => {
     modelResponses(reply({ evidence: [0], reference_answer: '根据来源[999]，使用唯一约束。' }))
-    await expect(analyzeRecording(fakeDb, record([segment(0, '如何保证幂等？')]), new AbortController().signal, () => {})).rejects.toThrow('参考资料')
+    const report = await analyzeRecording(fakeDb, record([segment(0, '如何保证幂等？')]), new AbortController().signal, () => {})
+    expect(report.questions[0].reference_answer).not.toContain('来源[999]')
+    expect(report.questions[0].reference_answer).toContain('使用唯一约束')
   })
+
+  it('checkpoints finished windows and resumes from the next one', async () => {
+    const value = longRecord()
+    const partials: RecordingReport[] = []
+    const save = (report: RecordingReport) => { partials.push(JSON.parse(JSON.stringify(report))) }
+    vi.mocked(generateTextWithFallback)
+      .mockImplementationOnce(async (_model, _def, options) => {
+        const text = JSON.stringify(reply())
+        options.validate?.(text)
+        return { text, usedModel: 'test-model' } as Awaited<ReturnType<typeof generateTextWithFallback>>
+      })
+      .mockImplementationOnce(async () => { throw new Error('network timeout') })
+    await expect(analyzeRecording(fakeDb, value, new AbortController().signal, () => {}, save)).rejects.toThrow('network timeout')
+    expect(partials).toHaveLength(1)
+    expect(partials[0].progress).toMatchObject({ completedBatches: 1, totalBatches: 2 })
+    expect(partials[0].questions).toHaveLength(1)
+    expect(vi.mocked(generateTextWithFallback)).toHaveBeenCalledTimes(2)
+
+    modelResponses(reply({ answer: '并使用数据库唯一约束。', score: 90, evidence: [59, 60] }))
+    const resumed = await analyzeRecording(fakeDb, { ...value, report: partials[0] }, new AbortController().signal, () => {}, save)
+    expect(vi.mocked(generateTextWithFallback)).toHaveBeenCalledTimes(3)
+    expect(resumed.progress).toBeUndefined()
+    expect(resumed.questions).toHaveLength(1)
+    expect(resumed.questions[0].evidence).toEqual([57, 59, 60])
+    expect(resumed.questions[0].answer).toContain('先使用缓存。')
+    expect(resumed.questions[0].answer).toContain('数据库唯一约束')
+    expect(partials).toHaveLength(2)
+  })
+
 })

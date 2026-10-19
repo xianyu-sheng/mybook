@@ -6,13 +6,38 @@ export function timeLabel(seconds: number) {
   const value = Math.max(0, Math.floor(seconds))
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
 }
+const CJK_BOUNDARY = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/
+function joinTranscriptText(left: string, right: string) {
+  if (!left) return right
+  if (!right) return left
+  return CJK_BOUNDARY.test(left[left.length - 1]) || CJK_BOUNDARY.test(right[0])
+    ? `${left}${right}`
+    : `${left} ${right}`
+}
+/** Whisper emits one segment per short pause; merge them into readable turns.
+ * Ids are reassigned, so call this before persisting a new transcript. */
+export function mergeTranscriptSegments(segments: TranscriptSegment[], maxGap = 1.6, maxChars = 240): TranscriptSegment[] {
+  const result: TranscriptSegment[] = []
+  for (const segment of [...segments].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const previous = result.at(-1)
+    if (previous && previous.track === segment.track && previous.speaker === segment.speaker
+      && segment.start - previous.end <= maxGap
+      && previous.text.length + segment.text.length <= maxChars) {
+      previous.text = joinTranscriptText(previous.text, segment.text)
+      previous.end = Math.max(previous.end, segment.end)
+      continue
+    }
+    result.push({ ...segment })
+  }
+  return result.map((segment, id) => ({ ...segment, id }))
+}
 function questionSources(record: Recording, index: number) {
   const citations = record.report?.questions[index]?.citations
   if (!citations?.length) return ''
   return `\n\n本题检索参考资料：\n${citations.map(c => `- ${c.ref}：${c.title}${c.url ? `（${c.url}）` : ''}`).join('\n')}`
 }
 export function recordingMarkdown(record: Recording) {
-  const transcript = record.segments.map(s => `[${timeLabel(s.start)}] ${s.speaker}：${s.text}`).join('\n\n')
+  const transcript = mergeTranscriptSegments(record.segments).map(s => `[${timeLabel(s.start)}] ${s.speaker}：${s.text}`).join('\n\n')
   const report = record.report
   return `# ${record.title}\n\n企业：${record.company || '未指定'}\n岗位：${record.role || '未指定'}\n标签：${record.tags.join('、')}\n\n## 岗位要求\n${record.jd}\n\n## 录音转写（可校对）\n${transcript}\n\n${report ? `## AI 面试复盘（待核实）\n综合评分：${report.score ?? '暂无可评分回答'}/100\n\n${report.summaries.join('\n\n')}\n\n${report.questions.map((q, i) => `### ${i + 1}. ${q.question}\n\n我的回答：${q.answer}\n\n评分：${q.score}/100\n\n优点：${q.strengths.join('；')}\n\n答题缺陷：${q.gaps.join('；')}\n\n参考答案：\n${q.reference_answer}${questionSources(record, i)}\n\n建议追问：${q.followups.join('；')}\n\n生成模型：${q.model}`).join('\n\n')}` : ''}`
 }
