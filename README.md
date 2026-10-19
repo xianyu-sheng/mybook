@@ -215,4 +215,4 @@ AI 生成的参考答案与评分需要结合原始资料核对；项目仓库�
 
 ## 项目与许可
 
-由 [xianyu-sheng](https://github.com/xianyu-sheng) 维护。目前为私有开发仓库，尚未声明开源许可证。第三方依赖、语音模型及知识资料遵循各自的许可证；Windows 安装器携带的 `ffmpeg-static` 为 GPL-3.0-or-later，相关许可证随依赖一起打包。
+由 [xianyu-sheng](https://github.com/xianyu-sheng) 维护，以 [MIT 许可证](LICENSE) 开源。第三方依赖、语音模型及知识资料遵循各自的许可证；Windows 安装器携带的 `ffmpeg-static` 为 GPL-3.0-or-later，相关许可证随依赖一起打包。
