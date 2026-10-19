@@ -6,6 +6,12 @@ import hashlib
 from pathlib import Path
 from urllib.request import urlopen, Request
 
+# The Electron parent decodes stdout/stderr as UTF-8. On a Chinese Windows the
+# default encoding for pipes is GBK, which garbles every emitted transcript.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Verified against the upstream SYSTRAN/faster-whisper-small checkpoint.
 MODEL_FILES = {
     'config.json': 'b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828',

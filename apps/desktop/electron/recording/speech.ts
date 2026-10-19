@@ -72,13 +72,13 @@ async function createVirtualenv(uv: string, python: string, venv: string, signal
 async function installWhisper(uv: string, python: string, signal: AbortSignal) {
   for (const index of ['https://pypi.org/simple', 'https://mirrors.aliyun.com/pypi/simple']) {
     try {
-      await runProcess(uv, ['pip', 'install', '--python', python, '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
+      await runProcess(uv, ['pip', 'install', '--python', python, '--index-url', index, 'faster-whisper==1.2.1', 'av==15.1.0'], { signal, timeout: 180000 })
       return
     } catch (error) {
       signal.throwIfAborted()
       try {
         await runProcess(python, ['-m', 'ensurepip'], { signal })
-        await runProcess(python, ['-m', 'pip', 'install', '--index-url', index, 'faster-whisper==1.2.1'], { signal, timeout: 180000 })
+        await runProcess(python, ['-m', 'pip', 'install', '--index-url', index, 'faster-whisper==1.2.1', 'av==15.1.0'], { signal, timeout: 180000 })
         return
       } catch (fallbackError) { if (signal.aborted) throw fallbackError }
     }
