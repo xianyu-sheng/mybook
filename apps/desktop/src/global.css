@@ -368,48 +368,48 @@ button:disabled { cursor: not-allowed; }
   pointer-events: none;
   background-size: cover;
   background-position: center;
-  filter: blur(32px) saturate(1.18);
+  filter: blur(24px) saturate(1.2);
   transform: scale(1.06);
 }
 .wallpaper-layer::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(246, 248, 252, 0.30), rgba(246, 248, 252, 0.68));
+  background: linear-gradient(180deg, rgba(246, 248, 252, 0.22), rgba(246, 248, 252, 0.55));
 }
 .dark .wallpaper-layer::after {
-  background: linear-gradient(180deg, rgba(9, 13, 19, 0.48), rgba(9, 13, 19, 0.80));
+  background: linear-gradient(180deg, rgba(9, 13, 19, 0.38), rgba(9, 13, 19, 0.72));
 }
 .has-wallpaper.wallpaper-vivid .wallpaper-layer::after {
-  background: linear-gradient(180deg, rgba(246, 248, 252, 0.12), rgba(246, 248, 252, 0.42));
+  background: linear-gradient(180deg, rgba(246, 248, 252, 0.08), rgba(246, 248, 252, 0.34));
 }
 .dark .has-wallpaper.wallpaper-vivid .wallpaper-layer::after {
-  background: linear-gradient(180deg, rgba(9, 13, 19, 0.28), rgba(9, 13, 19, 0.60));
+  background: linear-gradient(180deg, rgba(9, 13, 19, 0.22), rgba(9, 13, 19, 0.55));
 }
 .has-wallpaper {
   --app-bg: transparent;
-  --app-surface: rgba(255, 255, 255, 0.72);
-  --app-sidebar: rgba(243, 246, 251, 0.62);
-  --app-hover: rgba(232, 238, 247, 0.70);
+  --app-surface: rgba(255, 255, 255, 0.68);
+  --app-sidebar: rgba(243, 246, 251, 0.55);
+  --app-hover: rgba(232, 238, 247, 0.65);
   --app-border: rgba(118, 134, 160, 0.24);
   --app-accent-soft: rgba(229, 236, 253, 0.78);
 }
 .dark.has-wallpaper {
-  --app-surface: rgba(27, 34, 46, 0.80);
-  --app-sidebar: rgba(19, 25, 35, 0.72);
-  --app-hover: rgba(39, 49, 67, 0.72);
+  --app-surface: rgba(27, 34, 46, 0.76);
+  --app-sidebar: rgba(19, 25, 35, 0.66);
+  --app-hover: rgba(39, 49, 67, 0.68);
   --app-border: rgba(110, 128, 160, 0.28);
   --app-accent-soft: rgba(36, 55, 90, 0.80);
 }
 .has-wallpaper.wallpaper-vivid {
-  --app-surface: rgba(255, 255, 255, 0.56);
-  --app-sidebar: rgba(243, 246, 251, 0.44);
-  --app-hover: rgba(232, 238, 247, 0.55);
+  --app-surface: rgba(255, 255, 255, 0.48);
+  --app-sidebar: rgba(243, 246, 251, 0.38);
+  --app-hover: rgba(232, 238, 247, 0.50);
 }
 .dark.has-wallpaper.wallpaper-vivid {
-  --app-surface: rgba(27, 34, 46, 0.60);
-  --app-sidebar: rgba(19, 25, 35, 0.50);
-  --app-hover: rgba(39, 49, 67, 0.56);
+  --app-surface: rgba(27, 34, 46, 0.54);
+  --app-sidebar: rgba(19, 25, 35, 0.44);
+  --app-hover: rgba(39, 49, 67, 0.50);
 }
 .has-wallpaper .app-canvas { background: transparent; }
 .has-wallpaper > :not(.wallpaper-layer) { position: relative; z-index: 1; }

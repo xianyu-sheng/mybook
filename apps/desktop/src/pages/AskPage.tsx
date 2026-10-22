@@ -76,7 +76,7 @@ export default function AskPage() {
 
   return (
     <div className="flex h-full min-h-0 bg-transparent">
-      <aside className="w-72 shrink-0 border-r border-[color:var(--app-border)] bg-[color:var(--app-surface)] backdrop-blur-xl ask-surface flex flex-col min-h-0">
+      <aside className="w-72 shrink-0 border-r border-[color:var(--app-border)] bg-[color:var(--app-sidebar)] backdrop-blur-xl ask-surface flex flex-col min-h-0">
         <div className="px-4 pt-5 pb-3">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">知识问答</h1>

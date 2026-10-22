@@ -102,12 +102,13 @@ export default function ChatPanel({ sessionId, onChanged }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[color:var(--app-surface)] backdrop-blur-xl chat-surface" aria-label="知识问答">
+    <div className="flex flex-col h-full min-h-0 bg-transparent" aria-label="知识问答">
       {错误 && <p role="alert" className="text-sm text-amber-700 px-6 py-2 break-words">{错误}</p>}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4">
         {加载中 && <Loader2 className="animate-spin mx-auto my-6" />}
         {!加载中 && !消息列表.length && (
-          <div className="h-full flex flex-col items-center justify-center text-center py-10">
+          <div className="h-full flex items-center justify-center py-10">
+            <div className="flex flex-col items-center text-center rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] backdrop-blur-xl px-8 py-10 max-w-xl">
             <div className="w-12 h-12 rounded-xl bg-[color:var(--app-hover)] flex items-center justify-center mb-4">
               <MessagesSquare className="w-6 h-6 text-zinc-400" />
             </div>
@@ -123,6 +124,7 @@ export default function ChatPanel({ sessionId, onChanged }: Props) {
                 </button>
               ))}
             </div>
+            </div>
           </div>
         )}
         {消息列表.map((msg, i) => (
@@ -130,7 +132,7 @@ export default function ChatPanel({ sessionId, onChanged }: Props) {
             <div className={`max-w-[85%] rounded-lg px-3 py-2 whitespace-pre-wrap leading-relaxed ${
               msg.角色 === '用户'
                 ? 'bg-primary-500 text-white'
-                : 'bg-[color:var(--app-hover)] text-zinc-800 dark:text-zinc-200'
+                : 'bg-[color:var(--app-surface)] backdrop-blur-md text-zinc-800 dark:text-zinc-200'
             }`}>
               <div className="markdown-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children }) => <span>{children}</span> }}>
@@ -168,7 +170,7 @@ export default function ChatPanel({ sessionId, onChanged }: Props) {
         )}
         <div ref={底部引用} />
       </div>
-      <div className="shrink-0 border-t border-[color:var(--app-border)] p-4">
+      <div className="shrink-0 border-t border-[color:var(--app-border)] bg-[color:var(--app-surface)] backdrop-blur-xl p-4">
         <div className="flex items-end gap-2">
           <textarea
             aria-label="输入问题"
