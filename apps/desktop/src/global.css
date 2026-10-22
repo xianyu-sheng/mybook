@@ -389,6 +389,7 @@ button:disabled { cursor: not-allowed; }
 .has-wallpaper {
   --app-bg: transparent;
   --app-surface: rgba(255, 255, 255, 0.68);
+  --app-canvas-surface: rgba(250, 251, 253, 0.55);
   --app-sidebar: rgba(243, 246, 251, 0.55);
   --app-hover: rgba(232, 238, 247, 0.65);
   --app-border: rgba(118, 134, 160, 0.24);
@@ -396,6 +397,7 @@ button:disabled { cursor: not-allowed; }
 }
 .dark.has-wallpaper {
   --app-surface: rgba(27, 34, 46, 0.76);
+  --app-canvas-surface: rgba(15, 20, 28, 0.62);
   --app-sidebar: rgba(19, 25, 35, 0.66);
   --app-hover: rgba(39, 49, 67, 0.68);
   --app-border: rgba(110, 128, 160, 0.28);
@@ -403,15 +405,17 @@ button:disabled { cursor: not-allowed; }
 }
 .has-wallpaper.wallpaper-vivid {
   --app-surface: rgba(255, 255, 255, 0.48);
+  --app-canvas-surface: rgba(250, 251, 253, 0.28);
   --app-sidebar: rgba(243, 246, 251, 0.38);
   --app-hover: rgba(232, 238, 247, 0.50);
 }
 .dark.has-wallpaper.wallpaper-vivid {
   --app-surface: rgba(27, 34, 46, 0.54);
+  --app-canvas-surface: rgba(15, 20, 28, 0.40);
   --app-sidebar: rgba(19, 25, 35, 0.44);
   --app-hover: rgba(39, 49, 67, 0.50);
 }
-.has-wallpaper .app-canvas { background: transparent; }
+.has-wallpaper .app-canvas { background: var(--app-canvas-surface); }
 .has-wallpaper > :not(.wallpaper-layer) { position: relative; z-index: 1; }
 .has-wallpaper .app-topbar,
 .has-wallpaper .app-sidebar { backdrop-filter: blur(22px) saturate(1.3); }
@@ -419,3 +423,41 @@ button:disabled { cursor: not-allowed; }
 .has-wallpaper .notebook-overview-card,
 .has-wallpaper .ask-surface,
 .has-wallpaper .chat-surface { backdrop-filter: blur(18px) saturate(1.12); }
+
+
+/* Keep neutral cards and inputs consistent with the wallpaper theme.
+   Deliberately excludes solid bg-zinc-800/900 dark buttons that use white
+   text; their dark background is intentional. */
+.has-wallpaper .bg-white,
+.has-wallpaper .bg-zinc-50,
+.has-wallpaper .bg-zinc-100,
+.has-wallpaper .bg-zinc-200,
+.has-wallpaper [class*="dark:bg-zinc-"] {
+  background-color: var(--app-surface) !important;
+}
+.has-wallpaper .bg-zinc-50,
+.has-wallpaper .bg-zinc-100,
+.has-wallpaper [class*="bg-zinc-50/"],
+.has-wallpaper [class*="bg-zinc-100/"],
+.has-wallpaper [class*="bg-zinc-800/"],
+.has-wallpaper [class*="bg-zinc-900/"] {
+  background-color: var(--app-hover) !important;
+}
+.has-wallpaper .bg-primary-50,
+.has-wallpaper .bg-primary-100,
+.has-wallpaper [class*="bg-primary-50/"],
+.has-wallpaper [class*="dark:bg-primary-950"] {
+  background-color: var(--app-accent-soft) !important;
+}
+.has-wallpaper .border-zinc-200,
+.has-wallpaper .border-zinc-300,
+.has-wallpaper .border-zinc-600,
+.has-wallpaper .border-zinc-700,
+.has-wallpaper .border-zinc-800,
+.has-wallpaper [class*="dark:border-zinc-"] {
+  border-color: var(--app-border) !important;
+}
+.has-wallpaper .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
+.has-wallpaper .divide-zinc-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--app-border) !important;
+}
