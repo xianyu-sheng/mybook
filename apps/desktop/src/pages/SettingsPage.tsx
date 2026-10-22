@@ -53,6 +53,7 @@ export default function SettingsPage() {
   const [显示Cookie输入, set显示Cookie输入] = useState<string | null>(null)
   const [Cookie文本, setCookie文本] = useState('')
   const [壁纸地址, set壁纸地址] = useState<string | null>(null)
+  const [壁纸来源, set壁纸来源] = useState<string | null>(null)
   const [外观模式, set外观模式] = useState<'off' | 'soft' | 'vivid'>('soft')
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function SettingsPage() {
         ])
         if (!active) return
         set壁纸地址(info.url)
+        set壁纸来源(info.label)
         if (saved === 'off' || saved === 'soft' || saved === 'vivid') set外观模式(saved)
       } catch { /* 未检测到壁纸时保持纯色主题 */ }
     })()
@@ -109,6 +111,43 @@ export default function SettingsPage() {
       setTimeout(() => set保存提示(''), 2500)
     } catch (err: any) {
       alert('切换外观失败: ' + (err.message || String(err)))
+    }
+  }
+
+  const 刷新壁纸 = async () => {
+    const info = await window.knowmind.appearance.wallpaper()
+    set壁纸地址(info.url)
+    set壁纸来源(info.label)
+    window.dispatchEvent(new CustomEvent('knowmind:wallpaper-changed', { detail: info.url }))
+    return info
+  }
+
+  const 选择壁纸图片 = async () => {
+    try {
+      const file = await window.knowmind.appearance.choose()
+      if (!file) return
+      await window.knowmind.settings.set('wallpaperImage', file)
+      await 刷新壁纸()
+      if (外观模式 === 'off') {
+        set外观模式('soft')
+        await window.knowmind.settings.set('wallpaperTheme', 'soft')
+        window.dispatchEvent(new CustomEvent('knowmind:appearance-changed', { detail: 'soft' }))
+      }
+      set保存提示('背景图片已更新')
+      setTimeout(() => set保存提示(''), 2500)
+    } catch (err: any) {
+      alert('选择图片失败: ' + (err.message || String(err)))
+    }
+  }
+
+  const 使用自动壁纸 = async () => {
+    try {
+      await window.knowmind.settings.set('wallpaperImage', null)
+      await 刷新壁纸()
+      set保存提示('已恢复自动检测')
+      setTimeout(() => set保存提示(''), 2500)
+    } catch (err: any) {
+      alert('恢复自动壁纸失败: ' + (err.message || String(err)))
     }
   }
 
@@ -450,8 +489,22 @@ export default function SettingsPage() {
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Palette className="w-4 h-4" />外观</h2>
         <p className="text-sm text-zinc-500 mb-3">
-          把当前桌面壁纸作为窗口背景，模糊后叠在界面后面。只读取壁纸图片，不采集桌面图标、其它窗口或屏幕内容。
+          把桌面壁纸作为窗口背景，模糊后叠在界面后面。支持 Wallpaper Engine 当前壁纸、系统壁纸和自定义图片；
+          只读取静态图片，不采集桌面图标、其它窗口或屏幕内容。
         </p>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button onClick={() => void 选择壁纸图片()}
+            className="inline-flex items-center gap-1 rounded-md border border-[color:var(--app-border)] px-2.5 py-1.5 text-xs hover:bg-[color:var(--app-hover)]">
+            <Folder className="w-3.5 h-3.5" />选择图片
+          </button>
+          {壁纸来源 === '自定义图片' && (
+            <button onClick={() => void 使用自动壁纸()}
+              className="inline-flex items-center gap-1 rounded-md border border-[color:var(--app-border)] px-2.5 py-1.5 text-xs hover:bg-[color:var(--app-hover)]">
+              恢复自动检测
+            </button>
+          )}
+          {壁纸来源 && <span className="text-xs text-zinc-500">当前：{壁纸来源}</span>}
+        </div>
         {壁纸地址 ? <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {([
@@ -473,11 +526,11 @@ export default function SettingsPage() {
           <div className="mt-3 relative h-20 rounded-lg overflow-hidden border border-[color:var(--app-border)]">
             <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${壁纸地址}")`, filter: 'blur(3px) saturate(1.1)', transform: 'scale(1.08)' }} />
             <div className="absolute inset-0 bg-white/45 dark:bg-black/45" />
-            <span className="absolute left-3 bottom-2 text-[11px] text-zinc-700 dark:text-zinc-200">当前桌面壁纸 · 模糊预览</span>
+            <span className="absolute left-3 bottom-2 text-[11px] text-zinc-700 dark:text-zinc-200">当前窗口背景 · 模糊预览</span>
           </div>
         </> : (
           <p className="text-sm text-zinc-500 rounded-lg border border-dashed border-[color:var(--app-border)] p-4">
-            未检测到桌面壁纸。Windows 和 GNOME/Linux 桌面支持读取当前壁纸；其它环境会继续使用纯色主题。
+            未检测到桌面壁纸。可以手动选择一张图片，或启动 Wallpaper Engine 后重试。
           </p>
         )}
       </section>

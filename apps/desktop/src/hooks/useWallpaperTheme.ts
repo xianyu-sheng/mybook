@@ -32,10 +32,16 @@ export function useWallpaperTheme() {
       const next = (event as CustomEvent).detail
       if (isMode(next)) setMode(next)
     }
+    const wallpaperChanged = (event: Event) => {
+      const next = (event as CustomEvent).detail
+      if (next === null || typeof next === 'string') setWallpaperUrl(next)
+    }
     window.addEventListener('knowmind:appearance-changed', changed)
+    window.addEventListener('knowmind:wallpaper-changed', wallpaperChanged)
     return () => {
       active = false
       window.removeEventListener('knowmind:appearance-changed', changed)
+      window.removeEventListener('knowmind:wallpaper-changed', wallpaperChanged)
     }
   }, [])
 

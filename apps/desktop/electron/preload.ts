@@ -11,7 +11,8 @@ const knowmindApi = {
   /** 应用健康检查 */
   ping: () => ipcRenderer.invoke('knowmind:ping'),
   appearance: {
-    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper')
+    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper'),
+    choose: () => ipcRenderer.invoke('knowmind:appearance:choose')
   },
 
   practice: {

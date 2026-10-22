@@ -37,8 +37,17 @@ export default function TopBar() {
       const next = (event as CustomEvent).detail
       if (next === 'off' || next === 'soft' || next === 'vivid') setAppearanceMode(next)
     }
+    const wallpaperChanged = (event: Event) => {
+      const next = (event as CustomEvent).detail
+      if (next === null || typeof next === 'string') setWallpaperAvailable(Boolean(next))
+    }
     window.addEventListener('knowmind:appearance-changed', changed)
-    return () => { active = false; window.removeEventListener('knowmind:appearance-changed', changed) }
+    window.addEventListener('knowmind:wallpaper-changed', wallpaperChanged)
+    return () => {
+      active = false
+      window.removeEventListener('knowmind:appearance-changed', changed)
+      window.removeEventListener('knowmind:wallpaper-changed', wallpaperChanged)
+    }
   }, [])
 
   useEffect(() => {

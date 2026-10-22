@@ -4,7 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 const knowmindApi = {
   ping: () => ipcRenderer.invoke('knowmind:ping'),
   appearance: {
-    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper')
+    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper'),
+    choose: () => ipcRenderer.invoke('knowmind:appearance:choose')
   },
 
   practice: {

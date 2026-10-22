@@ -135,7 +135,10 @@ export interface QaSession {
 // ---- IPC 类型 ----
 export interface KnowMindApi {
   ping: () => Promise<string>
-  appearance: { wallpaper: () => Promise<{ url: string | null }> }
+  appearance: {
+    wallpaper: () => Promise<{ url: string | null; source: 'custom' | 'wallpaper-engine' | 'system' | null; label: string | null }>
+    choose: () => Promise<string | null>
+  }
 
   notebooks: {
     create: (title: string, description?: string, template?: string) => Promise<Notebook>
