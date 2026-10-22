@@ -122,6 +122,15 @@ export interface ChatMessage {
   citations_json: string
 }
 
+export interface QaSession {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  messages: number
+  preview: string | null
+}
+
 
 // ---- IPC 类型 ----
 export interface KnowMindApi {
@@ -170,6 +179,12 @@ export interface KnowMindApi {
     deleteProvider: (id: string) => Promise<AiProviderInfo[]>
     setActiveModel: (modelKey: string) => Promise<boolean>
     testConnection: (modelKey: string) => Promise<boolean>
+    listSessions: () => Promise<QaSession[]>
+    createSession: (title?: string) => Promise<QaSession>
+    renameSession: (id: string, title: string) => Promise<QaSession>
+    deleteSession: (id: string) => Promise<boolean>
+    sessionHistory: (id: string) => Promise<ChatMessage[]>
+    sessionQuery: (id: string, question: string) => Promise<AiAnswer>
   }
 
   supplement: {

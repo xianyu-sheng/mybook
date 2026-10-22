@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Plus, BookOpen, Archive, LibraryBig, Headphones, LayoutDashboard, Target, RefreshCw, Code2 } from 'lucide-react'
+import { Plus, BookOpen, Archive, LibraryBig, Headphones, LayoutDashboard, Target, RefreshCw, Code2, MessagesSquare } from 'lucide-react'
 import type { Notebook } from '@/types/db'
 import { ArchiveNotebookDialog, ArchivedNotebooksDialog, NOTEBOOKS_CHANGED, OPEN_ARCHIVE } from './NotebookDialogs'
 
 const destinations = [
   { path: '/', label: '工作台', icon: LayoutDashboard },
+  { path: '/ask', label: '知识问答', icon: MessagesSquare },
   { path: '/practice', label: '专项练习', icon: Target },
   { path: '/coding', label: '刷题计划', icon: Code2 },
   { path: '/recordings', label: '面试录音', icon: Headphones },

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { practiceMigration } from '../practice/schema.js'
 
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 const migrations: Record<number, string[]> = {
   1: [
@@ -290,6 +290,28 @@ const migrations: Record<number, string[]> = {
       UNIQUE(strategy_id, platform, external_id)
     )`,
     `CREATE INDEX idx_coding_sync_strategy ON coding_sync_record(strategy_id, platform, synced_at)`
+  ],
+  7: [
+    `CREATE TABLE qa_session (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE qa_message (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES qa_session(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+      content TEXT NOT NULL,
+      citations_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX idx_qa_message_session ON qa_message(session_id, created_at)`,
+    `INSERT INTO qa_session(id,title,created_at,updated_at)
+      SELECT 'legacy-' || n.id, n.title || ' · 历史问答', MIN(m.created_at), MAX(m.created_at)
+      FROM chat_message m JOIN notebook n ON n.id = m.notebook_id GROUP BY n.id`,
+    `INSERT INTO qa_message(id,session_id,role,content,citations_json,created_at)
+      SELECT id, 'legacy-' || notebook_id, role, content, citations_json, created_at FROM chat_message`
   ]
 }
 

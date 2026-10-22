@@ -103,7 +103,13 @@ const knowmindApi = {
     saveProvider: (input) => ipcRenderer.invoke('knowmind:ai:providers:save', input),
     deleteProvider: (id) => ipcRenderer.invoke('knowmind:ai:providers:delete', id),
     setActiveModel: (modelKey) => ipcRenderer.invoke('knowmind:ai:set-active-model', modelKey),
-    testConnection: (modelKey) => ipcRenderer.invoke('knowmind:ai:test-connection', modelKey)
+    testConnection: (modelKey) => ipcRenderer.invoke('knowmind:ai:test-connection', modelKey),
+    listSessions: () => ipcRenderer.invoke('knowmind:ai:sessions:list'),
+    createSession: (title) => ipcRenderer.invoke('knowmind:ai:sessions:create', title),
+    renameSession: (id, title) => ipcRenderer.invoke('knowmind:ai:sessions:rename', id, title),
+    deleteSession: (id) => ipcRenderer.invoke('knowmind:ai:sessions:delete', id),
+    sessionHistory: (id) => ipcRenderer.invoke('knowmind:ai:session-history', id),
+    sessionQuery: (id, question) => ipcRenderer.invoke('knowmind:ai:session-query', id, question)
   },
 
   supplement: {

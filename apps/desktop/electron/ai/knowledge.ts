@@ -7,7 +7,7 @@ import { browseGlobalKnowledge, relevanceScore, searchGlobalKnowledge, searchTer
 import { searchRecordingKnowledge } from '../recording/documents.js'
 import { InvalidModelOutput } from './generate.js'
 
-export type CitationKind = 'source' | 'global_document' | 'recording' | 'supplement'
+export type CitationKind = 'source' | 'global_document' | 'recording' | 'supplement' | 'global_note'
 export interface CitationSnapshot {
   ref: string; id: string; title: string; url?: string
   // Optional for older saved chat references, which already have id/title/ref.
@@ -84,21 +84,36 @@ function passages<T extends { id: string; title: string; content: string }>(docu
   }).slice(0, limit)
 }
 
-export function knowledgeContext(db: Database.Database, notebookId: string, query: string, excludeRecordingId = '', options: { browse?: boolean } = {}) {
+export function knowledgeContext(db: Database.Database, notebookId: string | null, query: string, excludeRecordingId = '', options: { browse?: boolean } = {}) {
   const terms = searchTerms(query)
   const browse = Boolean(options.browse)
   if (!terms.length && !browse) return { citations: [] as CitationSnapshot[], context: '' }
-  const sources = db.prepare("SELECT id, title, url, content_text AS content FROM source WHERE notebook_id = ? AND status = 'ready' ORDER BY rowid DESC").all(notebookId) as Array<{ id: string; title: string; url: string | null; content: string }>
+  // 全局问答会检索所有笔记本；笔记本内问答仍然只取当前笔记本的原始资料和补充。
+  const sources = (notebookId
+    ? db.prepare("SELECT id, title, url, content_text AS content FROM source WHERE notebook_id = ? AND status = 'ready' ORDER BY rowid DESC").all(notebookId)
+    : db.prepare("SELECT s.id, n.title || ' · ' || s.title AS title, s.url, s.content_text AS content FROM source s JOIN notebook n ON n.id=s.notebook_id WHERE s.status='ready' ORDER BY s.rowid DESC").all()) as Array<{ id: string; title: string; url: string | null; content: string }>
   // Search all saved learning notes; age is not a reason to forget relevant knowledge.
-  const supplements = db.prepare('SELECT id, title, content, source_type, citations_json FROM supplement WHERE notebook_id = ? ORDER BY rowid DESC').all(notebookId) as Array<{ id: string; title: string; content: string; source_type: string; citations_json: string }>
+  const supplements = (notebookId
+    ? db.prepare('SELECT id, title, content, source_type, citations_json FROM supplement WHERE notebook_id = ? ORDER BY rowid DESC').all(notebookId)
+    : db.prepare("SELECT sp.id, n.title || ' · ' || sp.title AS title, sp.content, sp.source_type, sp.citations_json FROM supplement sp JOIN notebook n ON n.id=sp.notebook_id ORDER BY sp.rowid DESC").all()) as Array<{ id: string; title: string; content: string; source_type: string; citations_json: string }>
+  const qaNotes = notebookId ? [] : (db.prepare(`SELECT m.id, s.title AS session_title, m.content, m.citations_json
+      FROM qa_message m JOIN qa_session s ON s.id=m.session_id
+      WHERE m.role='assistant' ORDER BY m.rowid DESC`).all() as Array<{ id: string; session_title: string; content: string; citations_json: string }>)
+    .map(note => ({
+      id: note.id, title: `问答会话 · ${note.session_title}`,
+      content: historicalCitationText(note.content, readCitationSnapshots(note.citations_json)).slice(0, 2400),
+      citations_json: note.citations_json,
+    }))
   const sourcePassages = passages(sources, terms, 6, browse)
   const learned = passages(supplements, terms, 5, browse)
+  const globalNotes = passages(qaNotes, terms, 4, browse)
   const globalPassages = browse ? browseGlobalKnowledge(db) : searchGlobalKnowledge(db, query)
   const recordings = searchRecordingKnowledge(db, query, excludeRecordingId).filter(p => relevanceScore(`${p.title} ${p.content}`, terms) > 0)
   const entries = [
     ...sourcePassages.map(p => ({ ...p, url: p.url || undefined, kind: 'source' as const, label: '原始资料，个人经历应核对原文' })),
     ...globalPassages.map(p => ({ ...p, title: `${p.repository_name} · ${p.title}`, kind: 'global_document' as const, label: '全局仓库，通用知识不代表用户经历' })),
     ...recordings.map(p => ({ ...p, content: historicalCitationText(p.content, []), kind: 'recording' as const, label: '全局面试录音：转写可校对，AI 复盘待核实' })),
+    ...globalNotes.map(p => ({ ...p, kind: 'global_note' as const, label: '全局问答记录，AI 生成，需核实；不代表用户已完成的经历' })),
     ...learned.map(p => ({ ...p, content: historicalCitationText(p.content, readCitationSnapshots(p.citations_json)).slice(0, 2400), kind: 'supplement' as const,
       label: p.source_type === 'manual' ? '用户补充，由用户提供、未独立核实' : 'AI 学习笔记，需结合原始资料核实；建议不代表用户已完成的经历',
       provenance: provenance(readCitationSnapshots(p.citations_json)) }))

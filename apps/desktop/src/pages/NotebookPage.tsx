@@ -2,10 +2,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import SourcePanel from '@/components/notebook/SourcePanel'
 import SupplementPanel from '@/components/notebook/SupplementPanel'
 import CardList from '@/components/card/CardList'
-import ChatPanel from '@/components/chat/ChatPanel'
 import InterviewPanel from '@/components/interview/InterviewPanel'
 import { useState, useEffect } from 'react'
-import { BookOpen, MessagesSquare, BriefcaseBusiness, ArrowLeft, Target, Loader2, Archive } from 'lucide-react'
+import { BookOpen, BriefcaseBusiness, ArrowLeft, Target, Loader2, Archive } from 'lucide-react'
 import type { Notebook } from '@/types/db'
 import { NOTEBOOKS_CHANGED, OPEN_ARCHIVE } from '@/components/layout/NotebookDialogs'
 
@@ -19,7 +18,7 @@ function NotebookWorkspace({ notebookId }: { notebookId: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [params, setParams] = useSearchParams()
-  const tab = ['interview', 'study', 'chat'].includes(params.get('tab') || '') ? params.get('tab')! : 'interview'
+  const tab = ['interview', 'study'].includes(params.get('tab') || '') ? params.get('tab')! : 'interview'
   const setTab = (value: string) => setParams(current => { const next = new URLSearchParams(current); next.set('tab', value); return next }, { replace: true })
   useEffect(() => {
     let active = true
@@ -35,7 +34,7 @@ function NotebookWorkspace({ notebookId }: { notebookId: string }) {
     window.addEventListener(NOTEBOOKS_CHANGED, refresh)
     return () => { active = false; window.removeEventListener(NOTEBOOKS_CHANGED, refresh) }
   }, [notebookId])
-  const tabs = [{ id: 'interview', label: '模拟面试', icon: BriefcaseBusiness }, { id: 'study', label: '复习资料', icon: BookOpen }, { id: 'chat', label: '知识问答', icon: MessagesSquare }]
+  const tabs = [{ id: 'interview', label: '模拟面试', icon: BriefcaseBusiness }, { id: 'study', label: '复习资料', icon: BookOpen }]
 
   if (loading) return <div role="status" className="dashboard-empty mt-12"><Loader2 size={20} className="animate-spin" /><p>正在打开笔记本...</p></div>
   if (!notebook || error || notebook.archived_at) return <div className="workspace-home"><Link to="/" className="workspace-text-link"><ArrowLeft size={15} />返回工作台</Link><div className="dashboard-panel dashboard-empty mt-6">{notebook?.archived_at ? <><Archive size={28} /><h1 className="text-lg font-semibold">这本笔记本已归档</h1><p className="workspace-muted text-sm">内容仍然保留，恢复后可以继续准备。</p><button className="workspace-button" onClick={() => window.dispatchEvent(new Event(OPEN_ARCHIVE))}>查看归档笔记本</button></> : <p role="alert" className="workspace-muted text-sm">{error || '找不到这本笔记本，请返回工作台打开其他资料。'}</p>}</div></div>
@@ -47,7 +46,6 @@ function NotebookWorkspace({ notebookId }: { notebookId: string }) {
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div role="tabpanel" id="notebook-panel-interview" aria-labelledby="notebook-tab-interview" hidden={tab !== 'interview'}><InterviewPanel notebookId={notebookId} /></div>
         <div role="tabpanel" id="notebook-panel-study" aria-labelledby="notebook-tab-study" hidden={tab !== 'study'}><div className="study-layout"><div className="study-sources space-y-6"><SourcePanel notebookId={notebookId} /><SupplementPanel notebookId={notebookId} /></div><CardList notebookId={notebookId} /></div></div>
-        <div role="tabpanel" id="notebook-panel-chat" aria-labelledby="notebook-tab-chat" hidden={tab !== 'chat'} className="h-full"><ChatPanel notebookId={notebookId} /></div>
       </div>
     </div>
   )

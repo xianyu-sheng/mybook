@@ -17,7 +17,7 @@ export default function TopBar() {
     return () => clearInterval(timer)
   }, [state.active?.started_at])
   const page = location.pathname.startsWith('/notebook/') ? '笔记本'
-    : ({ '/': '工作台', '/practice': '专项练习', '/coding': '刷题计划', '/recordings': '面试录音', '/repositories': '全局知识库', '/settings': '设置' }[location.pathname] || '工作空间')
+    : ({ '/': '工作台', '/ask': '知识问答', '/practice': '专项练习', '/coding': '刷题计划', '/recordings': '面试录音', '/repositories': '全局知识库', '/settings': '设置' }[location.pathname] || '工作空间')
 
   return (
     <header className="app-topbar shrink-0">

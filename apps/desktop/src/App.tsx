@@ -8,6 +8,7 @@ import RepositoriesPage from '@/pages/RepositoriesPage'
 import RecordingsPage from '@/pages/RecordingsPage'
 import PracticePage from '@/pages/PracticePage'
 import CodingPracticePage from '@/pages/CodingPracticePage'
+import AskPage from '@/pages/AskPage'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/recordings" element={<RecordingsPage />} />
             <Route path="/practice" element={<PracticePage />} />
             <Route path="/coding" element={<CodingPracticePage />} />
+            <Route path="/ask" element={<AskPage />} />
           </Route>
         </Routes>
       </HashRouter>
