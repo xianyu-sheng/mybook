@@ -304,8 +304,7 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto p-8">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">设置</h1>
       <p className="text-sm text-zinc-500 mb-6">
-        在下方添加自己的 AI 供应商（OpenAI 兼容或 Anthropic 协议）。API Key 只保存在本机数据库中，
-        不会进入源码仓库、导出文件或同步服务。
+        管理平台连接、桌面壁纸外观、AI 供应商和输出目录。API Key 只保存在本机数据库，不会进入源码仓库或导出文件。
       </p>
 
       {保存提示 && (
