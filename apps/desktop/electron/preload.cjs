@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Mybook API — 通过 contextBridge 暴露给渲染进程
 const knowmindApi = {
   ping: () => ipcRenderer.invoke('knowmind:ping'),
+  appearance: {
+    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper')
+  },
 
   practice: {
     list: () => ipcRenderer.invoke('knowmind:practice:list'),

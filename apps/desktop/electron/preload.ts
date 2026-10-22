@@ -10,6 +10,9 @@ import type { CodingAttemptInput, CodingRunInput, CodingStrategyInput, CodingStr
 const knowmindApi = {
   /** 应用健康检查 */
   ping: () => ipcRenderer.invoke('knowmind:ping'),
+  appearance: {
+    wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper')
+  },
 
   practice: {
     list: () => ipcRenderer.invoke('knowmind:practice:list'),

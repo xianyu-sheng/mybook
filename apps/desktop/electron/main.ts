@@ -18,8 +18,12 @@ import { registerPracticeIpc } from './ipc/practice.ipc.js'
 import { registerTargetIpc } from './ipc/target.ipc.js'
 import { registerCodingIpc } from './ipc/coding.ipc.js'
 import { initializeSpeech, recoverRecordings, recordingInProgress, shutdownRecording } from './recording/service.js'
+import { registerAppearanceIpc, registerWallpaperProtocol } from './appearance.js'
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'mybook-audio', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }])
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'mybook-audio', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+  { scheme: 'mybook-wallpaper', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+])
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -170,6 +174,8 @@ async function registerIpcHandlers() {
   // 初始化数据库
   getDb()
   configureCustomProviders(() => readCustomProviders(getDb()))
+  registerWallpaperProtocol()
+  registerAppearanceIpc()
   recoverInterruptedSyncs()
   await recoverRecordings()
   void initializeSpeech()

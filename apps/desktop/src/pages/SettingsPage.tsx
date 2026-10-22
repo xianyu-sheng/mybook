@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound } from 'lucide-react'
+import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound, Palette } from 'lucide-react'
 import type { PlatformStatus } from '@/types/db'
 
 interface 模型信息 {
@@ -52,6 +52,8 @@ export default function SettingsPage() {
   const [连接提示, set连接提示] = useState('')
   const [显示Cookie输入, set显示Cookie输入] = useState<string | null>(null)
   const [Cookie文本, setCookie文本] = useState('')
+  const [壁纸地址, set壁纸地址] = useState<string | null>(null)
+  const [外观模式, set外观模式] = useState<'off' | 'soft' | 'vivid'>('soft')
 
   useEffect(() => {
     (async () => {
@@ -81,6 +83,34 @@ export default function SettingsPage() {
       }
     })()
   }, [])
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const [info, saved] = await Promise.all([
+          window.knowmind.appearance.wallpaper(),
+          window.knowmind.settings.get('wallpaperTheme'),
+        ])
+        if (!active) return
+        set壁纸地址(info.url)
+        if (saved === 'off' || saved === 'soft' || saved === 'vivid') set外观模式(saved)
+      } catch { /* 未检测到壁纸时保持纯色主题 */ }
+    })()
+    return () => { active = false }
+  }, [])
+
+  const 切换外观 = async (mode: 'off' | 'soft' | 'vivid') => {
+    set外观模式(mode)
+    try {
+      await window.knowmind.settings.set('wallpaperTheme', mode)
+      window.dispatchEvent(new CustomEvent('knowmind:appearance-changed', { detail: mode }))
+      set保存提示(mode === 'off' ? '已切换为纯色背景' : '外观已更新')
+      setTimeout(() => set保存提示(''), 2500)
+    } catch (err: any) {
+      alert('切换外观失败: ' + (err.message || String(err)))
+    }
+  }
 
   const 切换模型 = async (key: string) => {
     set保存提示('')
@@ -416,6 +446,41 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Palette className="w-4 h-4" />外观</h2>
+        <p className="text-sm text-zinc-500 mb-3">
+          把当前桌面壁纸作为窗口背景，模糊后叠在界面后面。只读取壁纸图片，不采集桌面图标、其它窗口或屏幕内容。
+        </p>
+        {壁纸地址 ? <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {([
+              ['off', '纯色', '不使用壁纸'],
+              ['soft', '轻透', '模糊壁纸 + 玻璃面板'],
+              ['vivid', '通透', '更明显的壁纸'],
+            ] as const).map(([mode, label, description]) => (
+              <button key={mode} onClick={() => void 切换外观(mode)}
+                className={`text-left rounded-lg border p-3 transition-colors ${
+                  外观模式 === mode
+                    ? 'border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950'
+                    : 'border-[color:var(--app-border)] hover:bg-[color:var(--app-hover)]'
+                }`}>
+                <span className="block text-sm font-medium">{label}</span>
+                <span className="block text-xs text-zinc-500 mt-0.5">{description}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 relative h-20 rounded-lg overflow-hidden border border-[color:var(--app-border)]">
+            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${壁纸地址}")`, filter: 'blur(3px) saturate(1.1)', transform: 'scale(1.08)' }} />
+            <div className="absolute inset-0 bg-white/45 dark:bg-black/45" />
+            <span className="absolute left-3 bottom-2 text-[11px] text-zinc-700 dark:text-zinc-200">当前桌面壁纸 · 模糊预览</span>
+          </div>
+        </> : (
+          <p className="text-sm text-zinc-500 rounded-lg border border-dashed border-[color:var(--app-border)] p-4">
+            未检测到桌面壁纸。Windows 和 GNOME/Linux 桌面支持读取当前壁纸；其它环境会继续使用纯色主题。
+          </p>
+        )}
       </section>
 
       <section className="mb-8">

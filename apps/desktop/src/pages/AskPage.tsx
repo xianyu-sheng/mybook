@@ -75,8 +75,8 @@ export default function AskPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 bg-white dark:bg-zinc-950">
-      <aside className="w-72 shrink-0 border-r border-zinc-200 dark:border-zinc-800 flex flex-col min-h-0">
+    <div className="flex h-full min-h-0 bg-transparent">
+      <aside className="w-72 shrink-0 border-r border-[color:var(--app-border)] bg-[color:var(--app-surface)] backdrop-blur-xl ask-surface flex flex-col min-h-0">
         <div className="px-4 pt-5 pb-3">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">知识问答</h1>
@@ -97,8 +97,8 @@ export default function AskPage() {
               <div key={session.id}
                 className={`group rounded-lg px-2.5 py-2 cursor-pointer border ${
                   session.id === activeId
-                    ? 'border-primary-200 dark:border-primary-800 bg-primary-50/60 dark:bg-primary-950/30'
-                    : 'border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-900'
+                    ? 'border-[color:var(--app-border)] bg-[color:var(--app-accent-soft)]'
+                    : 'border-transparent hover:bg-[color:var(--app-hover)]'
                 }`}
                 onClick={() => setActiveId(session.id)}>
                 <div className="flex items-start gap-1.5">
@@ -111,7 +111,7 @@ export default function AskPage() {
                             if (event.key === 'Enter') void 保存重命名(session.id)
                             if (event.key === 'Escape') setEditingId(null)
                           }}
-                          className="w-full min-w-0 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-1.5 py-0.5 text-xs outline-none" />
+                          className="w-full min-w-0 rounded border border-[color:var(--app-border)] bg-transparent px-1.5 py-0.5 text-xs outline-none" />
                         <button aria-label="保存名称" onClick={() => void 保存重命名(session.id)} className="p-0.5 text-emerald-600"><Check className="w-3.5 h-3.5" /></button>
                         <button aria-label="取消重命名" onClick={() => setEditingId(null)} className="p-0.5 text-zinc-400"><X className="w-3.5 h-3.5" /></button>
                       </div>
