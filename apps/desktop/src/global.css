@@ -419,6 +419,9 @@ button:disabled { cursor: not-allowed; }
 .has-wallpaper > :not(.wallpaper-layer) { position: relative; z-index: 1; }
 .has-wallpaper .app-topbar,
 .has-wallpaper .app-sidebar { backdrop-filter: blur(22px) saturate(1.3); }
+/* Keep the top bar (and its dropdown menus) above the translucent canvas. */
+.has-wallpaper .app-topbar { z-index: 30; }
+.has-wallpaper .app-sidebar { z-index: 20; }
 .has-wallpaper .dashboard-panel,
 .has-wallpaper .notebook-overview-card,
 .has-wallpaper .ask-surface,

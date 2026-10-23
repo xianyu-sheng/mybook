@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound, Palette } from 'lucide-react'
+import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound, Palette, RefreshCw } from 'lucide-react'
 import type { PlatformStatus } from '@/types/db'
 
 interface 模型信息 {
@@ -496,6 +496,10 @@ export default function SettingsPage() {
           <button onClick={() => void 选择壁纸图片()}
             className="inline-flex items-center gap-1 rounded-md border border-[color:var(--app-border)] px-2.5 py-1.5 text-xs hover:bg-[color:var(--app-hover)]">
             <Folder className="w-3.5 h-3.5" />选择图片
+          </button>
+          <button onClick={() => void 刷新壁纸()} title="重新读取 Wallpaper Engine 或系统壁纸"
+            className="inline-flex items-center gap-1 rounded-md border border-[color:var(--app-border)] px-2.5 py-1.5 text-xs hover:bg-[color:var(--app-hover)]">
+            <RefreshCw className="w-3.5 h-3.5" />重新检测
           </button>
           {壁纸来源 === '自定义图片' && (
             <button onClick={() => void 使用自动壁纸()}
