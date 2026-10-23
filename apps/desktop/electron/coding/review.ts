@@ -41,6 +41,6 @@ export async function reviewCodingAttempt(db: Database.Database, input: ReviewIn
     '同时给出暴力解、当前解和更优/替代解的适用场景，指出边界条件、错误风险、可复习的知识点和进阶追问。corrected_solution 必须是完整、可运行的代码（沿用用户使用的语言，包含必要 import 和输入输出说明），不要只给伪代码；如果题目不适合完整实现，给出最小可运行片段并说明。advanced_followups 的每一项写成「追问：……；建议回答：……」并给出 2–4 句可直接说出口的答法。题源 URL 只是来源线索，不要编造官方答案、公司必考结论或用户经历。',
     '只输出 JSON，不要 Markdown 代码围栏：{"score":0到100的整数,"verdict":"correct|mostly_correct|incorrect|incomplete","summary":"结论","thought_feedback":"思路点评","code_feedback":"代码点评","complexity":{"time":"时间复杂度及依据","space":"空间复杂度及依据","correctness":"正确性与边界分析"},"better_approaches":["替代方案及适用场景"],"advanced_followups":["进阶方向"],"missed_concepts":["薄弱知识点"],"corrected_solution":"完整可运行的参考代码；不能把它说成官方答案","next_steps":["下一步练习"]}',
   ].join('\n')
-  const result = await generateTextWithFallback(model, def, { stream: true, timeoutMs: 50000, totalTimeoutMs: 180000, maxOutputTokens: 7000, system, prompt, validate: parseCodingReview })
+  const result = await generateTextWithFallback(model, def, { stream: true, timeoutMs: 50000, totalTimeoutMs: 180000, maxOutputTokens: 12000, system, prompt, validate: parseCodingReview })
   return { review: parseCodingReview(result.text), model_name: result.usedModel }
 }
