@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, session } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import net from 'node:net'
@@ -48,16 +48,37 @@ async function configuredGitProxy(): Promise<string | null> {
   return null
 }
 
+/** Use the Windows/macOS system proxy when Git's global config points at a
+ * dead local port. This keeps GitHub working after a proxy client changes
+ * ports without hardcoding a port. */
+async function systemProxy(): Promise<string | null> {
+  try {
+    const resolved = await session.defaultSession.resolveProxy('https://github.com')
+    const match = resolved.match(/(?:^|;)\s*(PROXY|SOCKS5?|HTTPS?)\s+([^;\s]+)/i)
+    if (!match) return null
+    const scheme = /^SOCKS/i.test(match[1]) ? 'socks5h://' : 'http://'
+    return `${scheme}${match[2]}`
+  } catch {
+    return null
+  }
+}
+
 /** A global Git proxy often survives after the proxy client changes ports.
- * Keep a reachable proxy, but bypass a dead one so a stale 127.0.0.1:xxxx
- * does not block every repository sync. */
+ * Keep a reachable proxy, use the system proxy when the configured one is
+ * dead, and only fall back to a direct connection if both are unreachable. */
 async function gitProxyArgs(): Promise<string[]> {
   if (proxyOverride && Date.now() < proxyOverride.expires) return proxyOverride.args
   let args: string[] = []
   const proxy = await configuredGitProxy()
   const endpoint = proxy ? proxyEndpoint(proxy) : null
-  if (endpoint && !(await portOpen(endpoint.host, endpoint.port))) {
-    args = ['-c', 'http.proxy=', '-c', 'https.proxy=']
+  if (!endpoint || !(await portOpen(endpoint.host, endpoint.port))) {
+    const fallback = await systemProxy()
+    const fallbackEndpoint = fallback ? proxyEndpoint(fallback) : null
+    if (fallback && fallbackEndpoint && await portOpen(fallbackEndpoint.host, fallbackEndpoint.port)) {
+      args = ['-c', `http.proxy=${fallback}`, '-c', `https.proxy=${fallback}`]
+    } else if (endpoint) {
+      args = ['-c', 'http.proxy=', '-c', 'https.proxy=']
+    }
   }
   proxyOverride = { args, expires: Date.now() + 60_000 }
   return args
