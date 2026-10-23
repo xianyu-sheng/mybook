@@ -1,12 +1,19 @@
 import type Database from 'better-sqlite3'
 import type { Recording, TranscriptSegment } from '../../src/types/recording.js'
 import { matchQuery, technicalQueryLiterals, tokenize } from '../repository/index.js'
+import * as OpenCC from 'opencc-js'
 
 export function timeLabel(seconds: number) {
   const value = Math.max(0, Math.floor(seconds))
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
 }
 const CJK_BOUNDARY = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/
+// Whisper's Chinese output often uses Traditional Chinese vocabulary. Convert
+// deterministically before saving/exporting so the rest of the app is consistent.
+const toSimplified = OpenCC.Converter({ from: 'tw', to: 'cn' })
+export function toSimplifiedChinese(text: string) {
+  return toSimplified(text)
+}
 function joinTranscriptText(left: string, right: string) {
   if (!left) return right
   if (!right) return left
@@ -16,9 +23,10 @@ function joinTranscriptText(left: string, right: string) {
 }
 /** Whisper emits one segment per short pause; merge them into readable turns.
  * Ids are reassigned, so call this before persisting a new transcript. */
-export function mergeTranscriptSegments(segments: TranscriptSegment[], maxGap = 1.6, maxChars = 240): TranscriptSegment[] {
+export function mergeTranscriptSegments(segments: TranscriptSegment[], maxGap = 2.2, maxChars = 360): TranscriptSegment[] {
   const result: TranscriptSegment[] = []
-  for (const segment of [...segments].sort((a, b) => a.start - b.start || a.end - b.end)) {
+  for (const original of [...segments].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const segment = { ...original, text: toSimplifiedChinese(original.text) }
     const previous = result.at(-1)
     if (previous && previous.track === segment.track && previous.speaker === segment.speaker
       && segment.start - previous.end <= maxGap
@@ -27,7 +35,7 @@ export function mergeTranscriptSegments(segments: TranscriptSegment[], maxGap = 
       previous.end = Math.max(previous.end, segment.end)
       continue
     }
-    result.push({ ...segment })
+    result.push(segment)
   }
   return result.map((segment, id) => ({ ...segment, id }))
 }

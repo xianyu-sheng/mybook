@@ -2,7 +2,7 @@
   "name": "mybook",
   "productName": "Mybook",
   "private": true,
-  "version": "0.9.12",
+  "version": "0.10.0",
   "description": "本地优先的 AI 面试准备桌面应用：知识库、企业模拟面试、录音复盘、刷题策略与专项练习",
   "author": {
     "name": "xianyu-sheng",
@@ -34,6 +34,7 @@
     "ffprobe-static": "^3.1.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.9.0",
+    "opencc-js": "^1.4.2",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

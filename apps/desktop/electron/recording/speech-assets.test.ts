@@ -13,4 +13,7 @@ describe('speech worker protocol', () => {
   it('pins a PyAV release that still supports metadata_errors', () => {
     expect(installer).toContain("'av==15.1.0'")
   })
+  it('asks Whisper for Simplified Chinese and keeps proper nouns', () => {
+    expect(worker).toContain("initial_prompt='以下是普通话技术面试对话，请用简体中文转写，保留专有名词。'")
+  })
 })

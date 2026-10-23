@@ -198,7 +198,7 @@ function RecordingDetail({ record, notebooks, busy, canProcess, ready, run, remo
           <h3 className="text-xs text-blue-600 font-semibold">标准要点与参考答案</h3><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{question.reference_answer}</ReactMarkdown></div>
           {Boolean(question.citations?.length) && <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3"><h3 className="text-xs text-zinc-500 mb-2">本题检索参考资料</h3><ul className="space-y-1 text-xs break-words">{question.citations!.map((source, n) => <li key={`${source.ref}-${n}`}><span className="text-zinc-500 mr-1">{source.ref}</span>{source.url && /^https?:\/\//i.test(source.url) ? <a href={source.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">{source.title}</a> : <span>{source.title}</span>}</li>)}</ul></div>}
           <PracticeButton source="recording" id={record.id} index={i} />
-          {question.followups.length > 0 && <><h3 className="text-xs text-zinc-500">继续练习</h3><ul className="list-disc pl-4">{question.followups.map((q, n) => <li key={n} className="break-words">{q}</li>)}</ul></>}
+          {question.followups.length > 0 && <><h3 className="text-xs text-zinc-500">继续练习</h3><ul className="list-disc pl-4">{question.followups.map((q, n) => <li key={n} className="break-words whitespace-pre-wrap">{q}</li>)}</ul></>}
         </div>
       </details>)}</div>
     </> : <p className="py-8 text-center text-sm text-zinc-500">暂无面试复盘</p>}

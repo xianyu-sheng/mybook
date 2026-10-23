@@ -98,7 +98,8 @@ def main():
         emit({'phase': 'track', 'track': track['kind'], 'index': index, 'total': len(tracks)})
         segments, info = model.transcribe(track['path'], language=language, beam_size=5,
                                           vad_filter=True, vad_parameters={'min_silence_duration_ms': 500},
-                                          condition_on_previous_text=False)
+                                          condition_on_previous_text=False,
+                                          initial_prompt='以下是普通话技术面试对话，请用简体中文转写，保留专有名词。' if language == 'zh' else None)
         for segment in segments:
             text = segment.text.strip()
             if not text:

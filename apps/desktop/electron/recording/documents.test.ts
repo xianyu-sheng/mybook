@@ -18,6 +18,11 @@ describe('transcript paragraph merging', () => {
     expect(merged[0]).toMatchObject({ start: 0, end: 4 })
   })
 
+  it('converts Traditional Chinese to Simplified before saving', () => {
+    const merged = mergeTranscriptSegments([segment(0, 0, 2, '麥斯官您好，準備好了嗎？')])
+    expect(merged[0].text).toBe('麦斯官您好，准备好了吗？')
+  })
+
   it('keeps long pauses and different tracks separate', () => {
     const merged = mergeTranscriptSegments([
       segment(0, 0, 2, '上半句'),

@@ -17,7 +17,7 @@ import { registerRecordingIpc } from './ipc/recording.ipc.js'
 import { registerPracticeIpc } from './ipc/practice.ipc.js'
 import { registerTargetIpc } from './ipc/target.ipc.js'
 import { registerCodingIpc } from './ipc/coding.ipc.js'
-import { initializeSpeech, recoverRecordings, recordingInProgress, shutdownRecording } from './recording/service.js'
+import { initializeSpeech, recoverRecordings, recordingInProgress, shutdownRecording, simplifyLegacyTranscripts } from './recording/service.js'
 import { registerAppearanceIpc, registerWallpaperProtocol } from './appearance.js'
 
 protocol.registerSchemesAsPrivileged([
@@ -173,6 +173,7 @@ async function registerIpcHandlers() {
 
   // 初始化数据库
   getDb()
+  simplifyLegacyTranscripts()
   configureCustomProviders(() => readCustomProviders(getDb()))
   registerWallpaperProtocol()
   registerAppearanceIpc()

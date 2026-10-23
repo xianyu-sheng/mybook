@@ -11,7 +11,7 @@ import { audioDevices, captureArgs, duration, recoverDuration, runProcess } from
 import { ffmpegCommand, windowsAudioCommand } from './media.js'
 import { checkSpeech, prepareSpeech, speechReady, transcribeAudio } from './speech.js'
 import { analyzeRecording } from './analysis.js'
-import { indexRecording, mergeTranscriptSegments, recordingMarkdown } from './documents.js'
+import { indexRecording, mergeTranscriptSegments, recordingMarkdown, toSimplifiedChinese } from './documents.js'
 
 export const recordingInput = z.object({
   title: z.string().trim().min(1).max(160), notebook_id: z.string().uuid().nullable(),
@@ -37,6 +37,31 @@ async function mutate<T>(id: string, task: () => Promise<T>): Promise<T> {
   try { return await task() } finally { mutations.delete(id) }
 }
 export async function initializeSpeech() { await checkSpeech(); notify() }
+
+/** One-time in-place conversion for recordings made before the OpenCC pass.
+ * Keep segment ids untouched because report evidence references them. */
+export function simplifyLegacyTranscripts() {
+  const db = getDb()
+  if (db.prepare("SELECT 1 FROM settings WHERE key='transcriptSimplifiedV1'").get()) return
+  const rows = db.prepare("SELECT id,transcript_json FROM recording WHERE length(transcript_json)>2").all() as Array<{ id: string; transcript_json: string }>
+  for (const row of rows) {
+    try {
+      const segments = JSON.parse(row.transcript_json) as TranscriptSegment[]
+      let changed = false
+      const simplified = segments.map(segment => {
+        const text = toSimplifiedChinese(segment.text)
+        if (text !== segment.text) changed = true
+        return { ...segment, text }
+      })
+      if (!changed) continue
+      db.prepare("UPDATE recording SET transcript_json=?,updated_at=datetime('now') WHERE id=?").run(JSON.stringify(simplified), row.id)
+      indexRecording(db, getRecording(row.id))
+    } catch (error) {
+      console.error('旧转写繁简转换失败:', row.id, error instanceof Error ? error.message : error)
+    }
+  }
+  db.prepare("INSERT INTO settings(key,value_json,updated_at) VALUES('transcriptSimplifiedV1','true',datetime('now')) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at").run()
+}
 
 export function recordingDirectory(id: string) {
   return path.join(app.getPath('userData'), 'recordings', z.string().uuid().parse(id))
