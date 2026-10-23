@@ -24,19 +24,20 @@ beforeEach(() => {
     ALTER TABLE card DROP COLUMN citations_json;
     ALTER TABLE interview_turn DROP COLUMN citations_json;
     ALTER TABLE interview_turn DROP COLUMN question_citations_json;
+    ALTER TABLE global_document DROP COLUMN blob_sha;
     DELETE FROM _schema_version WHERE version >= 5;`)
   seedLegacyData(db)
 })
 afterEach(() => db.close())
 
-describe('production v4 to v7 migration', () => {
+describe('production v4 to v8 migration', () => {
   it('preserves every existing column across connected user data and keeps indexes/FKs healthy', () => {
     const baseline = columnSnapshot(db)
     expect(baseline.notebook.columns).not.toContain('archived_at')
     expect(baseline.card.columns).not.toContain('citations_json')
     runMigrations(db)
     expect(snapshotOriginalColumns(db, baseline)).toEqual(baseline)
-    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get()).toMatchObject({ version: 7 })
+    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get()).toMatchObject({ version: 8 })
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     expect(db.prepare('PRAGMA integrity_check').get()).toMatchObject({ integrity_check: 'ok' })
     expect(db.prepare("SELECT rowid FROM recording_search WHERE recording_search MATCH 'audiomigrationtoken'").all()).toHaveLength(1)
@@ -58,7 +59,7 @@ describe('production v4 to v7 migration', () => {
     const afterFirst = columnSnapshot(db)
     runMigrations(db)
     expect(columnSnapshot(db)).toEqual(afterFirst)
-    expect(db.prepare('SELECT COUNT(*) AS n FROM _schema_version WHERE version=7').get()).toMatchObject({ n: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM _schema_version WHERE version=8').get()).toMatchObject({ n: 1 })
   })
   it('rolls back every added column on a mid-migration failure and permits a clean retry', () => {
     const baseline = columnSnapshot(db)

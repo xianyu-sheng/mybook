@@ -28,16 +28,27 @@ export function matchQuery(query: string): string {
   // interpreting a legacy C# token as C++; new syncs write the distinct tokens.
   return terms.map(term => `"${term.replace(/"/g, '""')}"`).join(' OR ')
 }
-export interface IndexedDocument { path: string; title: string; content: string; url: string }
-export function replaceIndex(db: Database.Database, repositoryId: string, documents: IndexedDocument[], revision: string, warning: string | null) {
-  const insertDoc = db.prepare('INSERT INTO global_document(id,repository_id,path,url,title,content_text,checksum) VALUES (?,?,?,?,?,?,?)')
+export interface IndexedDocument { path: string; title: string; content: string; url: string; blobSha?: string }
+export interface IndexMergeOptions {
+  removedPaths?: string[]
+  backfill?: Array<{ path: string; blobSha: string }>
+}
+/** Merge only new/changed documents into the repository index. Existing rows
+ * are kept, so an incremental sync never re-tokenizes the whole repository. */
+export function mergeIndex(db: Database.Database, repositoryId: string, documents: IndexedDocument[], revision: string, warning: string | null, options: IndexMergeOptions = {}) {
+  const insertDoc = db.prepare('INSERT INTO global_document(id,repository_id,path,url,title,content_text,checksum,blob_sha) VALUES (?,?,?,?,?,?,?,?)')
   const insertChunk = db.prepare('INSERT INTO global_chunk(document_id,content) VALUES (?,?)')
   const insertFts = db.prepare('INSERT INTO global_search(rowid,title_tokens,body_tokens) VALUES (?,?,?)')
+  const deleteDoc = db.prepare('DELETE FROM global_document WHERE id=?')
+  const deletePath = db.prepare('DELETE FROM global_document WHERE repository_id=? AND path=?')
+  const backfill = db.prepare('UPDATE global_document SET blob_sha=? WHERE repository_id=? AND path=? AND blob_sha IS NULL')
   db.transaction(() => {
-    db.prepare('DELETE FROM global_document WHERE repository_id=?').run(repositoryId)
+    for (const path of options.removedPaths || []) deletePath.run(repositoryId, path)
     for (const doc of documents) {
       const id = createHash('sha256').update(`${repositoryId}:${doc.path}`).digest('hex')
-      insertDoc.run(id, repositoryId, doc.path, doc.url, doc.title, doc.content, createHash('sha256').update(doc.content).digest('hex'))
+      // A changed document keeps its stable id; replace its content and chunks.
+      deleteDoc.run(id)
+      insertDoc.run(id, repositoryId, doc.path, doc.url, doc.title, doc.content, createHash('sha256').update(doc.content).digest('hex'), doc.blobSha || null)
       const titleTokens = tokenize(`${doc.title} ${doc.path}`).join(' ')
       for (let offset = 0; offset < doc.content.length; offset += 1400) {
         const content = doc.content.slice(offset, offset + 1800)
@@ -45,9 +56,16 @@ export function replaceIndex(db: Database.Database, repositoryId: string, docume
         insertFts.run(chunkId, titleTokens, tokenize(content).join(' '))
       }
     }
+    for (const entry of options.backfill || []) backfill.run(entry.blobSha, repositoryId, entry.path)
     db.prepare("UPDATE global_repository SET status='ready', revision=?, warning=?, last_error=NULL, last_synced_at=datetime('now'), updated_at=datetime('now') WHERE id=?").run(revision, warning, repositoryId)
   })()
 }
+/** Rebuild a repository snapshot (used by tests and maintenance tools). */
+export function replaceIndex(db: Database.Database, repositoryId: string, documents: IndexedDocument[], revision: string, warning: string | null) {
+  db.prepare('DELETE FROM global_document WHERE repository_id=?').run(repositoryId)
+  mergeIndex(db, repositoryId, documents, revision, warning)
+}
+
 export function searchGlobalKnowledge(db: Database.Database, query: string, limit = 6) {
   const match = matchQuery(query)
   if (!match) return []

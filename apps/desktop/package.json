@@ -2,7 +2,7 @@
   "name": "mybook",
   "productName": "Mybook",
   "private": true,
-  "version": "0.9.11",
+  "version": "0.9.12",
   "description": "本地优先的 AI 面试准备桌面应用：知识库、企业模拟面试、录音复盘、刷题策略与专项练习",
   "author": {
     "name": "xianyu-sheng",

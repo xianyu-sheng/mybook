@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { practiceMigration } from '../practice/schema.js'
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 const migrations: Record<number, string[]> = {
   1: [
@@ -312,6 +312,9 @@ const migrations: Record<number, string[]> = {
       FROM chat_message m JOIN notebook n ON n.id = m.notebook_id GROUP BY n.id`,
     `INSERT INTO qa_message(id,session_id,role,content,citations_json,created_at)
       SELECT id, 'legacy-' || notebook_id, role, content, citations_json, created_at FROM chat_message`
+  ],
+  8: [
+    `ALTER TABLE global_document ADD COLUMN blob_sha TEXT`
   ]
 }
 
