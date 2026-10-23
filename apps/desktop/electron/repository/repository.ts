@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import net from 'node:net'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { mkdir, mkdtemp, readdir, readFile, stat, rm } from 'node:fs/promises'
@@ -12,6 +13,55 @@ import type { GlobalRepository, RepositoryInput } from '../../src/types/reposito
 const exec = promisify(execFile)
 const active = new Map<string, { controller: AbortController; progress: string }>()
 let stopping = false
+let proxyOverride: { args: string[]; expires: number } | null = null
+
+function proxyEndpoint(value: string): { host: string; port: number } | null {
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`)
+    const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
+    if (!url.hostname || !Number.isInteger(port) || port <= 0 || port > 65535) return null
+    return { host: url.hostname, port }
+  } catch {
+    return null
+  }
+}
+
+function portOpen(host: string, port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = net.connect({ host, port })
+    const finish = (open: boolean) => { socket.destroy(); resolve(open) }
+    socket.setTimeout(1200)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
+}
+
+async function configuredGitProxy(): Promise<string | null> {
+  for (const key of ['http.proxy', 'https.proxy']) {
+    try {
+      const { stdout } = await exec('git', ['config', '--global', '--get', key], { timeout: 5000, maxBuffer: 64 * 1024 })
+      const value = stdout.trim()
+      if (value) return value
+    } catch { /* key not configured */ }
+  }
+  return null
+}
+
+/** A global Git proxy often survives after the proxy client changes ports.
+ * Keep a reachable proxy, but bypass a dead one so a stale 127.0.0.1:xxxx
+ * does not block every repository sync. */
+async function gitProxyArgs(): Promise<string[]> {
+  if (proxyOverride && Date.now() < proxyOverride.expires) return proxyOverride.args
+  let args: string[] = []
+  const proxy = await configuredGitProxy()
+  const endpoint = proxy ? proxyEndpoint(proxy) : null
+  if (endpoint && !(await portOpen(endpoint.host, endpoint.port))) {
+    args = ['-c', 'http.proxy=', '-c', 'https.proxy=']
+  }
+  proxyOverride = { args, expires: Date.now() + 60_000 }
+  return args
+}
 
 export function normalizeRepositoryUrl(value: string): string {
   const url = new URL(value)
@@ -35,7 +85,7 @@ export function recoverInterruptedSyncs() {
 
 async function git(args: string[], signal: AbortSignal) {
   return (await exec('git', ['-c', 'credential.helper=', '-c', 'core.hooksPath=/dev/null', '-c', 'protocol.file.allow=never',
-    '-c', 'protocol.ext.allow=never', ...args], { signal, timeout: 300_000, maxBuffer: 8 * 1024 * 1024,
+    '-c', 'protocol.ext.allow=never', ...(await gitProxyArgs()), ...args], { signal, timeout: 300_000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })).stdout.trim()
 }
 
