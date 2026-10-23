@@ -42,8 +42,8 @@ export async function initializeSpeech() { await checkSpeech(); notify() }
  * Keep segment ids untouched because report evidence references them. */
 export function simplifyLegacyTranscripts() {
   const db = getDb()
-  if (db.prepare("SELECT 1 FROM settings WHERE key='transcriptSimplifiedV1'").get()) return
-  const rows = db.prepare("SELECT id,transcript_json FROM recording WHERE length(transcript_json)>2").all() as Array<{ id: string; transcript_json: string }>
+  if (db.prepare("SELECT 1 FROM settings WHERE key='transcriptSimplifiedV2'").get()) return
+  const rows = db.prepare("SELECT id,transcript_json,report_json FROM recording WHERE length(transcript_json)>2").all() as Array<{ id: string; transcript_json: string; report_json: string | null }>
   for (const row of rows) {
     try {
       const segments = JSON.parse(row.transcript_json) as TranscriptSegment[]
@@ -53,14 +53,30 @@ export function simplifyLegacyTranscripts() {
         if (text !== segment.text) changed = true
         return { ...segment, text }
       })
+      let report = row.report_json ? JSON.parse(row.report_json) : null
+      if (report?.questions) {
+        report = { ...report, summaries: (report.summaries || []).map((summary: string) => toSimplifiedChinese(summary)) }
+        report.questions = report.questions.map((question: any) => ({
+          ...question,
+          question: toSimplifiedChinese(question.question || ''),
+          answer: toSimplifiedChinese(question.answer || ''),
+          strengths: (question.strengths || []).map((item: string) => toSimplifiedChinese(item)),
+          gaps: (question.gaps || []).map((item: string) => toSimplifiedChinese(item)),
+          reference_answer: toSimplifiedChinese(question.reference_answer || ''),
+          followups: (question.followups || []).map((item: string) => toSimplifiedChinese(item)),
+          citations: (question.citations || []).map((citation: any) => ({ ...citation, title: toSimplifiedChinese(citation.title || '') })),
+        }))
+        changed = true
+      }
       if (!changed) continue
-      db.prepare("UPDATE recording SET transcript_json=?,updated_at=datetime('now') WHERE id=?").run(JSON.stringify(simplified), row.id)
+      db.prepare("UPDATE recording SET transcript_json=?,report_json=?,updated_at=datetime('now') WHERE id=?").run(
+        JSON.stringify(simplified), report ? JSON.stringify(report) : row.report_json, row.id)
       indexRecording(db, getRecording(row.id))
     } catch (error) {
       console.error('旧转写繁简转换失败:', row.id, error instanceof Error ? error.message : error)
     }
   }
-  db.prepare("INSERT INTO settings(key,value_json,updated_at) VALUES('transcriptSimplifiedV1','true',datetime('now')) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at").run()
+  db.prepare("INSERT INTO settings(key,value_json,updated_at) VALUES('transcriptSimplifiedV2','true',datetime('now')) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at").run()
 }
 
 export function recordingDirectory(id: string) {
