@@ -314,7 +314,9 @@ const migrations: Record<number, string[]> = {
       SELECT id, 'legacy-' || notebook_id, role, content, citations_json, created_at FROM chat_message`
   ],
   8: [
-    `ALTER TABLE global_document ADD COLUMN blob_sha TEXT`
+    `ALTER TABLE global_document ADD COLUMN blob_sha TEXT`,
+    `ALTER TABLE global_document ADD COLUMN indexed_revision TEXT`,
+    `UPDATE global_document SET indexed_revision=(SELECT revision FROM global_repository WHERE global_repository.id=global_document.repository_id)`
   ]
 }
 

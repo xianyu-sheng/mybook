@@ -197,12 +197,10 @@ export async function syncRepository(id: string): Promise<void> {
       return Boolean(oldBlob && oldBlob !== entry.blobSha)
     })
     const removedPaths = [...existing.keys()].filter(filePath => !treePaths.has(filePath))
-    // Legacy rows have no blob fingerprint. If the commit did not change since
-    // the previous sync, their content still matches it; fill the fingerprint
-    // without downloading anything so future changes can be detected.
-    const backfill = row.revision === revision
-      ? tree.filter(entry => existing.has(entry.path) && !existing.get(entry.path)).map(entry => ({ path: entry.path, blobSha: entry.blobSha }))
-      : []
+    // Legacy rows have no blob fingerprint. The merge only fills one when the
+    // row was indexed at the current revision, so content from an older commit
+    // is never mistaken for the latest one.
+    const backfill = tree.filter(entry => existing.has(entry.path) && !existing.get(entry.path)).map(entry => ({ path: entry.path, blobSha: entry.blobSha }))
     if (!newFiles.length && !changedFiles.length && !removedPaths.length) {
       signal.throwIfAborted()
       state.progress = '已是最新，无新增文档'

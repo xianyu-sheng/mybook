@@ -25,6 +25,7 @@ beforeEach(() => {
     ALTER TABLE interview_turn DROP COLUMN citations_json;
     ALTER TABLE interview_turn DROP COLUMN question_citations_json;
     ALTER TABLE global_document DROP COLUMN blob_sha;
+    ALTER TABLE global_document DROP COLUMN indexed_revision;
     DELETE FROM _schema_version WHERE version >= 5;`)
   seedLegacyData(db)
 })

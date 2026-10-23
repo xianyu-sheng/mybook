@@ -42,8 +42,12 @@ describe('incremental repository index', () => {
     expect(searchable('beta')).toBe(1)
   })
 
-  it('removes disappeared paths and backfills legacy fingerprints', () => {
+  it('removes disappeared paths and backfills legacy fingerprints only at the same revision', () => {
     mergeIndex(db, 'repo', [{ path: 'a.md', title: 'A', content: 'ALPHA', url: 'u/a' }], 'r1', null)
+    expect(db.prepare("SELECT blob_sha,indexed_revision FROM global_document WHERE path='a.md'").get()).toMatchObject({ blob_sha: null, indexed_revision: 'r1' })
+
+    // A fingerprint from a newer commit must not be applied to older content.
+    mergeIndex(db, 'repo', [], 'r2', null, { backfill: [{ path: 'a.md', blobSha: 'sha-a1' }] })
     expect(db.prepare("SELECT blob_sha FROM global_document WHERE path='a.md'").get()).toMatchObject({ blob_sha: null })
 
     mergeIndex(db, 'repo', [], 'r1', null, { backfill: [{ path: 'a.md', blobSha: 'sha-a1' }] })

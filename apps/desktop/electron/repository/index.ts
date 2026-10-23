@@ -36,19 +36,19 @@ export interface IndexMergeOptions {
 /** Merge only new/changed documents into the repository index. Existing rows
  * are kept, so an incremental sync never re-tokenizes the whole repository. */
 export function mergeIndex(db: Database.Database, repositoryId: string, documents: IndexedDocument[], revision: string, warning: string | null, options: IndexMergeOptions = {}) {
-  const insertDoc = db.prepare('INSERT INTO global_document(id,repository_id,path,url,title,content_text,checksum,blob_sha) VALUES (?,?,?,?,?,?,?,?)')
+  const insertDoc = db.prepare('INSERT INTO global_document(id,repository_id,path,url,title,content_text,checksum,blob_sha,indexed_revision) VALUES (?,?,?,?,?,?,?,?,?)')
   const insertChunk = db.prepare('INSERT INTO global_chunk(document_id,content) VALUES (?,?)')
   const insertFts = db.prepare('INSERT INTO global_search(rowid,title_tokens,body_tokens) VALUES (?,?,?)')
   const deleteDoc = db.prepare('DELETE FROM global_document WHERE id=?')
   const deletePath = db.prepare('DELETE FROM global_document WHERE repository_id=? AND path=?')
-  const backfill = db.prepare('UPDATE global_document SET blob_sha=? WHERE repository_id=? AND path=? AND blob_sha IS NULL')
+  const backfill = db.prepare('UPDATE global_document SET blob_sha=? WHERE repository_id=? AND path=? AND blob_sha IS NULL AND indexed_revision=?')
   db.transaction(() => {
     for (const path of options.removedPaths || []) deletePath.run(repositoryId, path)
     for (const doc of documents) {
       const id = createHash('sha256').update(`${repositoryId}:${doc.path}`).digest('hex')
       // A changed document keeps its stable id; replace its content and chunks.
       deleteDoc.run(id)
-      insertDoc.run(id, repositoryId, doc.path, doc.url, doc.title, doc.content, createHash('sha256').update(doc.content).digest('hex'), doc.blobSha || null)
+      insertDoc.run(id, repositoryId, doc.path, doc.url, doc.title, doc.content, createHash('sha256').update(doc.content).digest('hex'), doc.blobSha || null, revision)
       const titleTokens = tokenize(`${doc.title} ${doc.path}`).join(' ')
       for (let offset = 0; offset < doc.content.length; offset += 1400) {
         const content = doc.content.slice(offset, offset + 1800)
@@ -56,7 +56,7 @@ export function mergeIndex(db: Database.Database, repositoryId: string, document
         insertFts.run(chunkId, titleTokens, tokenize(content).join(' '))
       }
     }
-    for (const entry of options.backfill || []) backfill.run(entry.blobSha, repositoryId, entry.path)
+    for (const entry of options.backfill || []) backfill.run(entry.blobSha, repositoryId, entry.path, revision)
     db.prepare("UPDATE global_repository SET status='ready', revision=?, warning=?, last_error=NULL, last_synced_at=datetime('now'), updated_at=datetime('now') WHERE id=?").run(revision, warning, repositoryId)
   })()
 }
