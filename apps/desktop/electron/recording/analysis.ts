@@ -163,7 +163,7 @@ export async function analyzeRecording(db: Database.Database, record: Recording,
 按准确性40%、原理深度30%、表达结构20%、岗位契合10%给出0到100的整数分。answer 摘录本人的实际回答，evidence 必须是本次输入真实片段的 id。
 输入包含相邻窗口重复的衔接片段。若同一道题的回答在本窗口继续，请结合提供的此前实际回答与本窗口新增回答重新完整评价，保留原题目文字，并在 evidence 中包含衔接片段及新片段；不要因该题此前评价过就跳过补充回答。仅有重复衔接片段、没有新回答时不要重复输出该题。同一问题在其他时间重新作答应单独评价。
 gaps 必须指出具体缺陷与改进方法，不仅给泛泛鼓励。reference_answer 给出可复习的标准要点和参考回答，用知识库核对项目事实并标注来源，不编造项目经历、业绩数据或企业内部信息；缺资料处说明需补充事实。不要将 AI 建议当作用户已完成的经历。
-如果题目涉及可实现的技术方案、算法、数据结构或工具链，reference_answer 必须追加一段用 Markdown 代码围栏包裹的最小可运行示例（注明语言、必要 import 和输入输出），用来加固基础；纯行为/项目经历题可只给可验证的落地步骤，不要硬塞代码。
+如果题目涉及可实现的技术方案、算法、数据结构或工具链，reference_answer 必须追加一段用 Markdown 代码围栏包裹的最小可运行示例（注明语言、必要 import 和输入输出），用来加固基础；纯行为/项目经历题可只给可验证的落地步骤，不要硬塞代码。如果代码示例是 Python，再追加「### Python 语法讲解」，逐点讲解代码中真实用到的 Python 语法、标准库和工程写法，说明为什么这样写、常见坑以及与 Java/刷题写法的对照。
 followups 中的每一项都必须写成「追问：……；建议回答：……」的完整文本，建议回答给出 2–4 句可以直接说出口的答法，不能只列问题。
 仅输出完整JSON：{"summary":"本段整体表现与优先改进点","questions":[{"question":"题目","answer":"实际回答","evidence":[0],"score":60,"strengths":["优点"],"gaps":["具体缺陷和改法"],"reference_answer":"标准要点与参考回答","followups":["建议练习的追问题"]}]}`,
       prompt: `企业：${record.company}\n岗位：${record.role}\nJD：${record.jd}\n\n关联项目与全局知识：\n${knowledge.context || '未提供项目资料'}\n\n录音片段（第${index + 1}/${batches.length}段）：\n${JSON.stringify(batch)}\n\n与本窗口衔接的此前实际回答（只用于合并延续回答；evidence 仍只填写本窗口提供的片段 id）：\n${JSON.stringify(continuations)}`,

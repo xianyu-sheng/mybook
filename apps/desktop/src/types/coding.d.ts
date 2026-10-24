@@ -128,6 +128,8 @@ export interface CodingReview {
   advanced_followups: string[]
   missed_concepts: string[]
   corrected_solution: string
+  /** Python syntax and engineering notes for the reference implementation. */
+  python_notes?: string
   next_steps: string[]
   notice?: string
 }

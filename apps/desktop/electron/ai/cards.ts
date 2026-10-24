@@ -45,7 +45,7 @@ export async function generateCards(model: LanguageModel, def: ModelDef, options
     if (remaining <= 0) throw new Error('卡片生成已达到时间上限，本次未保存不完整结果，请稍后重试。')
     const result = await generateTextWithFallback(model, def, {
       system: options.system,
-      prompt: `## 知识来源\n${options.context}\n\n以「${options.label}」模式生成恰好 ${count} 张知识卡片。输出完整 JSON 数组，每项包含 title、brief_answer、detail_answer、tags、sources。详细解释控制在 200–350 字，保留原理和例子；如果知识点有可实现的核心（接口、算法、SQL、配置、并发/缓存方案等），追加一个简短的 Markdown 代码块示例，并附 1–2 个追问及「建议回答」；纯概念不必硬塞代码。只引用实际使用的来源，合法编号：${JSON.stringify(allowedRefs)}；通用补充未使用来源时 sources 可为空，不能编造编号。\n不要重复以下题目：${JSON.stringify(titles)}\n只输出 JSON，不要加说明或代码围栏。`,
+      prompt: `## 知识来源\n${options.context}\n\n以「${options.label}」模式生成恰好 ${count} 张知识卡片。输出完整 JSON 数组，每项包含 title、brief_answer、detail_answer、tags、sources。详细解释控制在 200–350 字，保留原理和例子；如果知识点有可实现的核心（接口、算法、SQL、配置、并发/缓存方案等），追加一个简短的 Markdown 代码块示例，并附 1–2 个追问及「建议回答」；纯概念不必硬塞代码。如果代码示例是 Python，再追加「### Python 语法讲解」，逐点解释代码中真实用到的 Python 语法、标准库和工程写法（如 heapq、Counter、typing、with、生成器、if __name__ 等于 “__main__”、输入解析），说明为什么这样写和常见坑；不要只列名词。只引用实际使用的来源，合法编号：${JSON.stringify(allowedRefs)}；通用补充未使用来源时 sources 可为空，不能编造编号。\n不要重复以下题目：${JSON.stringify(titles)}\n只输出 JSON，不要加说明或代码围栏。`,
       maxOutputTokens: 8000, timeoutMs: 60000, totalTimeoutMs: remaining, idleTimeoutMs: 20000, stream: true,
       validate: text => { parseCards(text, count, titles, allowedRefs) },
       onProgress: progress => options.onProgress?.({ ...progress, completed: cards.length, requested: options.count }),

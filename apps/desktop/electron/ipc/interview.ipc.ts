@@ -74,7 +74,7 @@ async function askModel(system: string, prompt: string, validate?: (text: string
 
 async function generateFeedback(session: InterviewSession, turn: InterviewTurn, input: ReturnType<typeof context>, last: boolean) {
   try {
-    const { text, usedModel } = await askModel(`你是严谨的中文面试教练，评价本场最后一题的回答。按准确性40%、深度30%、表达20%、岗位契合10%综合评分。指出具体错误与可执行的改进建议。不要因为用户要求高分而改变标准。参考答案不能编造候选人经历；如果题目涉及可实现的技术方案，参考答案附一段最小可运行代码，纯行为题不必硬塞代码。知识总结应写成独立可复习的事实与方法，注明适用条件。下一题基于薄弱点追问或覆盖JD中未问的能力，避免重复。${last ? '这是最后一题，next_question 必须为空。' : '必须给出非空 next_question。'}
+    const { text, usedModel } = await askModel(`你是严谨的中文面试教练，评价本场最后一题的回答。按准确性40%、深度30%、表达20%、岗位契合10%综合评分。指出具体错误与可执行的改进建议。不要因为用户要求高分而改变标准。参考答案不能编造候选人经历；如果题目涉及可实现的技术方案，参考答案附一段最小可运行代码；如果代码是 Python，再附「### Python 语法讲解」，逐点解释真实用到的语法、标准库和常见坑。纯行为题不必硬塞代码。知识总结应写成独立可复习的事实与方法，注明适用条件。下一题基于薄弱点追问或覆盖JD中未问的能力，避免重复。${last ? '这是最后一题，next_question 必须为空。' : '必须给出非空 next_question。'}
 仅输出 JSON：{"score":0到100的整数,"feedback":"具体点评","reference_answer":"参考答案","knowledge":"独立复习知识","next_question":"下一题"}`, input.prompt,
       text => { parseInterviewFeedback(text, last); selectCitations(text, input.citations) },
       // A full review contains four generated fields and may include the
