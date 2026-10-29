@@ -139,10 +139,14 @@ export default function SourcePanel({ notebookId }: Props) {
   }
 
   const 删除来源 = async (id: string) => {
+    const source = 来源列表.find(item => item.id === id)
+    if (!confirm(`删除来源「${source?.title || id}」？相关的分块会一并删除；已经生成的卡片会保留。`)) return
     try {
       await window.knowmind.sources.delete(id)
       set来源列表(prev => prev.filter(s => s.id !== id))
       set展开摘要(prev => { const next = { ...prev }; delete next[id]; return next })
+      set提示('来源已删除')
+      setTimeout(() => set提示(''), 1500)
     } catch (err: any) {
       set错误('删除失败: ' + (err?.message || String(err)))
     }
@@ -326,8 +330,8 @@ export default function SourcePanel({ notebookId }: Props) {
                       : <Lightbulb className="w-3.5 h-3.5" />}
                   </button>
                 )}
-                <button onClick={() => 删除来源(s.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400 hover:text-red-500 transition-all">
+                <button onClick={() => 删除来源(s.id)} title="删除来源" aria-label={`删除来源 ${s.title}`}
+                  className="opacity-70 hover:opacity-100 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400 hover:text-red-500 transition-all">
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>

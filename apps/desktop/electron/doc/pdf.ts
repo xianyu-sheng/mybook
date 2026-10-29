@@ -1,13 +1,17 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { app } from 'electron'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-// 配置 worker 路径：编译后 pdf.js 在 dist/electron/doc/，需要向上 3 层到 apps/desktop/
+// PDF.js 的 worker 不能用 Windows 绝对路径直接交给 ESM loader；必须转成 file:// URL。
+// 打包后 worker 由 extraResources 放到 resources/pdf.worker.mjs，避免 asar 内 ESM 解析问题。
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(
-  __dirname, '..', '..', '..', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.mjs'
-)
+const devWorker = path.join(__dirname, '..', '..', '..', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.mjs')
+const packagedWorker = path.join(process.resourcesPath, 'pdf.worker.mjs')
+const workerPath = app.isPackaged && existsSync(packagedWorker) ? packagedWorker : devWorker
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
 
 export async function parsePdf(filePath: string): Promise<string> {
   const fs = await import('node:fs')
