@@ -17,6 +17,8 @@ import { registerRecordingIpc } from './ipc/recording.ipc.js'
 import { registerPracticeIpc } from './ipc/practice.ipc.js'
 import { registerTargetIpc } from './ipc/target.ipc.js'
 import { registerCodingIpc } from './ipc/coding.ipc.js'
+import { registerMobileSyncIpc } from './ipc/mobile-sync.ipc.js'
+import { restoreMobileSync, shutdownMobileSync } from './mobile-sync.js'
 import { initializeSpeech, recoverRecordings, recordingInProgress, shutdownRecording, simplifyLegacyTranscripts } from './recording/service.js'
 import { registerAppearanceIpc, registerWallpaperProtocol } from './appearance.js'
 
@@ -191,6 +193,8 @@ async function registerIpcHandlers() {
   registerPracticeIpc()
   registerTargetIpc()
   registerCodingIpc()
+  registerMobileSyncIpc()
+  void restoreMobileSync().catch(error => console.error('恢复手机同步失败:', error))
 }
 
 if (primaryInstance) app.whenReady().then(async () => {
@@ -212,7 +216,7 @@ app.on('before-quit', event => {
     void shutdownRecording().finally(() => app.quit())
   }
 })
-app.on('will-quit', () => { cancelAllSyncs(); closeDb() })
+app.on('will-quit', () => { cancelAllSyncs(); shutdownMobileSync(); closeDb() })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()

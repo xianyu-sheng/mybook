@@ -14,6 +14,12 @@ const knowmindApi = {
     wallpaper: () => ipcRenderer.invoke('knowmind:appearance:wallpaper'),
     choose: () => ipcRenderer.invoke('knowmind:appearance:choose')
   },
+  mobileSync: {
+    status: () => ipcRenderer.invoke('knowmind:mobile-sync:status'),
+    start: () => ipcRenderer.invoke('knowmind:mobile-sync:start'),
+    stop: () => ipcRenderer.invoke('knowmind:mobile-sync:stop'),
+    regenerate: () => ipcRenderer.invoke('knowmind:mobile-sync:regenerate'),
+  },
 
   practice: {
     list: () => ipcRenderer.invoke('knowmind:practice:list'),

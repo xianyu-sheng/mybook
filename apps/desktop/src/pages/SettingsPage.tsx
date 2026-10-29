@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound, Palette, RefreshCw } from 'lucide-react'
+import { Check, Loader2, Server, Globe, Folder, Link2, Link2Off, Download, Pencil, Plus, Trash2, KeyRound, Palette, RefreshCw, Smartphone, Copy, Power } from 'lucide-react'
 import type { PlatformStatus } from '@/types/db'
 
 interface 模型信息 {
@@ -55,6 +55,9 @@ export default function SettingsPage() {
   const [壁纸地址, set壁纸地址] = useState<string | null>(null)
   const [壁纸来源, set壁纸来源] = useState<string | null>(null)
   const [外观模式, set外观模式] = useState<'off' | 'soft' | 'vivid'>('soft')
+  const [手机同步, set手机同步] = useState<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] } | null>(null)
+  const [同步操作, set同步操作] = useState('')
+  const [同步提示, set同步提示] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -102,6 +105,10 @@ export default function SettingsPage() {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    void window.knowmind.mobileSync.status().then(set手机同步).catch(() => {})
+  }, [])
+
   const 切换外观 = async (mode: 'off' | 'soft' | 'vivid') => {
     set外观模式(mode)
     try {
@@ -112,6 +119,38 @@ export default function SettingsPage() {
     } catch (err: any) {
       alert('切换外观失败: ' + (err.message || String(err)))
     }
+  }
+
+  const 刷新手机同步 = async () => {
+    set手机同步(await window.knowmind.mobileSync.status())
+  }
+
+  const 切换手机同步 = async () => {
+    if (!手机同步) return
+    set同步操作('toggle'); set同步提示('')
+    try {
+      const next = 手机同步.running ? await window.knowmind.mobileSync.stop() : await window.knowmind.mobileSync.start()
+      set手机同步(next)
+      set同步提示(next.running ? '电脑端同步已开启，手机通过 USB 网络共享连接下面的地址。' : '电脑端同步已关闭。')
+    } catch (err: any) {
+      set同步提示('开启失败：' + (err.message || String(err)))
+    } finally { set同步操作('') }
+  }
+
+  const 重新生成配对码 = async () => {
+    if (!confirm('重新生成后，已配对的手机需要重新输入新配对码。继续？')) return
+    set同步操作('code'); set同步提示('')
+    try {
+      set手机同步(await window.knowmind.mobileSync.regenerate())
+      set同步提示('配对码已更新。')
+    } catch (err: any) {
+      set同步提示('更新失败：' + (err.message || String(err)))
+    } finally { set同步操作('') }
+  }
+
+  const 复制同步信息 = async (value: string) => {
+    try { await navigator.clipboard.writeText(value); set同步提示('已复制：' + value) }
+    catch { set同步提示('复制失败，请手动选择文本。') }
   }
 
   const 刷新壁纸 = async () => {
@@ -537,6 +576,46 @@ export default function SettingsPage() {
             未检测到桌面壁纸。可以手动选择一张图片，或启动 Wallpaper Engine 后重试。
           </p>
         )}
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Smartphone className="w-4 h-4" />手机同步</h2>
+        <p className="text-sm text-zinc-500 mb-3">
+          手机 Mybook 通过 USB 网络共享直连电脑；数据在本地加密封包，不经过第三方服务器。
+          开启后，在手机设置里填写下面的地址和配对码，即可同步卡片、问答和文字模拟面试。
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button onClick={() => void 切换手机同步()} disabled={Boolean(同步操作)}
+            className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs text-white ${手机同步?.running ? 'bg-red-600 hover:bg-red-700' : 'bg-primary-600 hover:bg-primary-700'} disabled:opacity-50`}>
+            {同步操作 === 'toggle' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+            {手机同步?.running ? '关闭同步' : '开启同步'}
+          </button>
+          <button onClick={() => void 重新生成配对码()} disabled={Boolean(同步操作)}
+            className="inline-flex items-center gap-1 rounded-md border border-[color:var(--app-border)] px-2.5 py-1.5 text-xs hover:bg-[color:var(--app-hover)] disabled:opacity-50">
+            <RefreshCw className="w-3.5 h-3.5" />重新生成配对码
+          </button>
+          {手机同步 && <span className={`text-xs ${手机同步.running ? 'text-emerald-600' : 'text-zinc-500'}`}>{手机同步.running ? `运行中 · 端口 ${手机同步.port}` : '未开启'}</span>}
+        </div>
+        {手机同步?.running && <>
+          <div className="grid gap-2">
+            <div className="rounded-lg border border-[color:var(--app-border)] p-3">
+              <p className="text-xs text-zinc-500 mb-1">电脑端地址（手机填写其中一个）</p>
+              {手机同步.endpoints.map(endpoint => <div key={endpoint} className="flex items-center justify-between gap-2 py-0.5">
+                <code className="text-sm break-all">{endpoint}</code>
+                <button className="text-xs text-primary-600 flex items-center gap-1" onClick={() => void 复制同步信息(endpoint)}><Copy className="w-3 h-3" />复制</button>
+              </div>)}
+            </div>
+            <div className="rounded-lg border border-[color:var(--app-border)] p-3">
+              <p className="text-xs text-zinc-500 mb-1">配对码</p>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-lg tracking-[0.18em]">{手机同步.code}</code>
+                <button className="text-xs text-primary-600 flex items-center gap-1" onClick={() => void 复制同步信息(手机同步.code)}><Copy className="w-3 h-3" />复制</button>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-500 mt-2">首次开启可能弹出 Windows 防火墙提示，请允许专用网络访问；手机需开启“USB 网络共享”。</p>
+        </>}
+        {同步提示 && <p role="status" className="text-xs text-amber-700 mt-2 whitespace-pre-wrap break-words">{同步提示}</p>}
       </section>
 
       <section className="mb-8">

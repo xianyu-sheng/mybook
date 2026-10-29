@@ -1,13 +1,15 @@
 {
   "name": "mybook",
   "private": true,
-  "version": "0.10.3",
+  "version": "0.11.0",
   "description": "本地优先的 AI 面试准备桌面应用：知识库、企业模拟面试、录音复盘、刷题策略与专项练习",
   "scripts": {
     "dev": "cd apps/desktop && npm run dev",
     "build": "cd apps/desktop && npm run build",
     "package": "cd apps/desktop && npm run package",
-    "typecheck": "cd apps/desktop && npm run typecheck"
+    "typecheck": "cd apps/desktop && npm run typecheck",
+    "mobile:build": "cd apps/mobile && npm run build",
+    "mobile:sync": "cd apps/mobile && npm run build && npx cap sync android"
   },
   "engines": {
     "node": ">=22.12.0"

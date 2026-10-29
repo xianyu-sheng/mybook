@@ -140,6 +140,13 @@ export interface KnowMindApi {
     choose: () => Promise<string | null>
   }
 
+  mobileSync: {
+    status: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
+    start: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
+    stop: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
+    regenerate: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
+  }
+
   notebooks: {
     create: (title: string, description?: string, template?: string) => Promise<Notebook>
     list: () => Promise<Notebook[]>
