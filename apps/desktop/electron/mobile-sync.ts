@@ -356,7 +356,10 @@ export async function startMobileSync() {
     }
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-      response.end(JSON.stringify({ app: 'mybook', version: 1, name: 'Mybook' }))
+      response.end(JSON.stringify({
+        app: 'mybook', version: 1, name: syncName(), port: PORT,
+        discoveryPort: DISCOVERY_PORT, fingerprint: fingerprint(),
+      }))
       return
     }
     if (request.method === 'POST' && request.url === '/sync') {

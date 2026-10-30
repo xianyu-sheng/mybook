@@ -87,7 +87,7 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
       setDevices(checked)
       const reachableDevices = checked.filter(device => device.reachable)
       if (!checked.length && showEmptyHint) {
-        setScanMessage('没有发现电脑。请确认电脑端已开启“手机同步”，手机和电脑连同一个 Wi-Fi/热点，并关闭 VPN。')
+        setScanMessage('没有发现电脑。请确认电脑端已开启“手机同步”，手机和电脑连同一个 Wi-Fi/热点，并关闭 VPN；也可以直接把电脑 IP 填到下面（手机浏览器能打开 http://电脑IP:47821/health 的地址）。')
       } else if (checked.length && !reachableDevices.length) {
         setScanMessage(`扫描到 ${checked.length} 台电脑，但 HTTP 47821 端口都连不上。请关闭手机 VPN，确认 Windows 防火墙允许专用网络访问 TCP 47821；也可以改用 USB 网络共享。`)
       } else if (reachableDevices.length === 1) {
