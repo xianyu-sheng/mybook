@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, MessageCircle, Mic, Settings as SettingsIcon } from 'lucide-react'
+import { BookOpen, FolderOpen, MessageCircle, Mic, Settings as SettingsIcon } from 'lucide-react'
 import type { Provider, Tab } from './types'
 import { getProviders, getSetting, initDb, setSetting } from './db'
 import CardsPage from './pages/CardsPage'
 import QaPage from './pages/QaPage'
 import InterviewPage from './pages/InterviewPage'
+import ResourcesPage from './pages/ResourcesPage'
 import SettingsPage from './pages/SettingsPage'
 
 export interface AiConfig {
@@ -14,6 +15,7 @@ export interface AiConfig {
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof BookOpen }> = [
   { id: 'cards', label: '卡片', icon: BookOpen },
+  { id: 'resources', label: '资料', icon: FolderOpen },
   { id: 'qa', label: '问答', icon: MessageCircle },
   { id: 'interview', label: '模拟面试', icon: Mic },
   { id: 'settings', label: '设置', icon: SettingsIcon },
@@ -54,6 +56,7 @@ export default function App() {
       <main className="app-main">
         {!ready ? <div className="empty">正在打开本地知识库…</div> : error ? <div className="alert error">{error}</div> : <>
           {tab === 'cards' && <CardsPage config={config} />}
+          {tab === 'resources' && <ResourcesPage />}
           {tab === 'qa' && <QaPage config={config} />}
           {tab === 'interview' && <InterviewPage config={config} />}
           {tab === 'settings' && <SettingsPage config={config} onConfigChanged={refreshConfig} onModelChanged={value => { setModel(value); setSetting('activeModel', value) }} />}

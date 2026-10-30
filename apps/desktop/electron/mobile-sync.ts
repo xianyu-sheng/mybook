@@ -202,15 +202,25 @@ function merge(db: Database.Database, payload: MobileSyncPayload) {
 function pcSnapshot(): MobileSyncPayload {
   const db = getDb()
   const cards = db.prepare(`SELECT id,title,brief_answer,detail_answer,tags_json,created_at,updated_at FROM card ORDER BY updated_at DESC`).all()
+  const notebooks = db.prepare(`SELECT id,title,coalesce(description,'') AS description,coalesce(settings_json,'{}') AS settings_json,created_at,updated_at FROM notebook ORDER BY created_at`).all()
+  const sources = db.prepare(`SELECT id,notebook_id,type,title,url,coalesce(content_text,'') AS content_text,coalesce(metadata_json,'{}') AS metadata_json,status,created_at,updated_at FROM source ORDER BY created_at`).all()
+  const repositories = db.prepare(`SELECT id,name,base_url,coalesce(homepage,'') AS homepage,coalesce(description,'') AS description,revision,warning,enabled,status,last_synced_at,created_at,updated_at FROM global_repository ORDER BY created_at`).all()
+  const documents = db.prepare(`SELECT id,repository_id,path,url,title,coalesce(content_text,'') AS content_text,checksum,created_at,updated_at FROM global_document ORDER BY repository_id,path`).all()
   const qaSessions = db.prepare(`SELECT id,title,created_at,updated_at FROM qa_session ORDER BY updated_at DESC`).all()
   const qaMessages = db.prepare(`SELECT id,session_id,role,content,citations_json,created_at FROM qa_message ORDER BY created_at`).all()
   const interviewSessions = db.prepare(`SELECT id,title,company,role,jd,status,created_at,updated_at FROM interview_session ORDER BY updated_at DESC`).all()
   const interviewTurns = db.prepare(`SELECT id,session_id,question,answer,feedback,score,reference_answer,knowledge,created_at FROM interview_turn ORDER BY created_at`).all()
   const providers = setting('customProviders')
+  const activeModel = setting('activeModel')
+  const activeKey = typeof activeModel === 'string' && activeModel.startsWith('custom:') ? activeModel.slice(7) : ''
+  const [activeProviderId, encodedModelName] = activeKey.split('::')
+  const activeModelName = encodedModelName ? decodeURIComponent(encodedModelName) : null
   return {
     version: 1, deviceId: 'pc', generatedAt: new Date().toISOString(),
-    cards, qaSessions, qaMessages, interviewSessions, interviewTurns,
+    cards, notebooks, sources, repositories, documents, qaSessions, qaMessages, interviewSessions, interviewTurns,
     providers: Array.isArray(providers) ? providers : [],
+    activeProviderId: activeProviderId || null,
+    activeModelName,
   } as MobileSyncPayload
 }
 

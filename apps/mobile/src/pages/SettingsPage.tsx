@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { Check, ChevronRight, CloudDownload, Loader2, RefreshCw, Wifi } from 'lucide-react'
 import type { AiConfig } from '../App'
 import type { DiscoveredDevice, Provider, SyncSettings } from '../types'
-import { deviceId, getProviders, getSetting, listCards, listInterviewSessions, listQaSessions, setProviders, setSetting } from '../db'
+import { countResources, deviceId, getProviders, getSetting, listCards, listInterviewSessions, listQaSessions, setProviders, setSetting } from '../db'
 import { discoverComputers } from '../discovery'
 import { ping, probeEndpoint, syncNow } from '../sync'
 
@@ -24,11 +24,15 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   const [devices, setDevices] = useState<DiscoveredDevice[]>([])
   const [scanning, setScanning] = useState(false)
   const [scanMessage, setScanMessage] = useState('')
-  const [counts, setCounts] = useState({ cards: 0, qa: 0, interviews: 0 })
+  const [counts, setCounts] = useState({ cards: 0, qa: 0, interviews: 0, resources: 0 })
 
-  const refreshCounts = () => setCounts({
-    cards: listCards().length, qa: listQaSessions().length, interviews: listInterviewSessions().length,
-  })
+  const refreshCounts = () => {
+    const resources = countResources()
+    setCounts({
+      cards: listCards().length, qa: listQaSessions().length, interviews: listInterviewSessions().length,
+      resources: resources.sources + resources.documents,
+    })
+  }
 
   useEffect(() => {
     const saved = getSetting<SyncSettings>('sync', { endpoint: '', code: '', deviceId: deviceId() })
@@ -178,7 +182,7 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
         <button className="primary" disabled={Boolean(syncBusy)} onClick={() => void runSync()}>{syncBusy === 'sync' ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />} 立即同步</button>
       </div>
       {syncMessage && <p className={syncMessage.includes('失败') || syncMessage.includes('错误') || syncMessage.includes('没有响应') ? 'alert error' : 'alert ok'}>{syncMessage}</p>}
-      <div className="stats"><span>卡片 {counts.cards}</span><span>问答 {counts.qa}</span><span>面试 {counts.interviews}</span></div>
+      <div className="stats"><span>卡片 {counts.cards}</span><span>问答 {counts.qa}</span><span>面试 {counts.interviews}</span><span>资料 {counts.resources}</span></div>
     </section>
 
     <section className="panel compose">

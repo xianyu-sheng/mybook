@@ -127,7 +127,7 @@ export async function syncNow(settings: SyncSettings): Promise<{ ok: boolean; me
   const incoming = await decrypt(result.data, settings.code.trim()) as SyncPayload
   if (!incoming || incoming.version !== 1) throw new Error('电脑返回的同步数据格式不兼容')
   const stats = mergePayload(incoming)
-  return { ok: true, message: `同步完成：卡片 ${stats.cards}，问答 ${stats.qa}，面试 ${stats.interviews}`, stats }
+  return { ok: true, message: `同步完成：卡片 ${stats.cards}，问答 ${stats.qa}，面试 ${stats.interviews}，资料 ${stats.resources}`, stats }
 }
 
 export async function ping(settings: SyncSettings): Promise<boolean> {

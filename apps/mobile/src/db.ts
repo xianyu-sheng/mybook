@@ -1,6 +1,6 @@
 import initSqlJs, { type Database } from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
-import type { Card, InterviewSession, InterviewTurn, Provider, QaMessage, QaSession, SyncPayload } from './types'
+import type { Card, InterviewSession, InterviewTurn, KnowledgeDocument, Notebook, Provider, QaMessage, QaSession, Repository, ResourceSnippet, ResourceSource, SyncPayload } from './types'
 
 const DB_NAME = 'mybook-mobile'
 const STORE = 'sqlite'
@@ -94,6 +94,27 @@ export async function initDb() {
       knowledge TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS notebooks (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+      settings_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sources (
+      id TEXT PRIMARY KEY, notebook_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL,
+      url TEXT, content_text TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'ready', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sources_notebook ON sources(notebook_id);
+    CREATE TABLE IF NOT EXISTS repositories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '', homepage TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '', revision TEXT, warning TEXT, enabled INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'ready', last_synced_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, path TEXT NOT NULL, url TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL, content_text TEXT NOT NULL DEFAULT '', checksum TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_repository ON documents(repository_id);
   `)
   if (!stored) schedulePersist()
 }
@@ -197,6 +218,89 @@ export function deviceId(): string {
   return id
 }
 
+export function listNotebooks(): Notebook[] {
+  return all<Notebook>('SELECT * FROM notebooks ORDER BY created_at')
+}
+
+export function listSources(notebookId = ''): ResourceSource[] {
+  return notebookId
+    ? all<ResourceSource>('SELECT * FROM sources WHERE notebook_id=? ORDER BY created_at', [notebookId])
+    : all<ResourceSource>('SELECT * FROM sources ORDER BY created_at')
+}
+
+export function listRepositories(): Repository[] {
+  return all<Repository>('SELECT * FROM repositories ORDER BY created_at')
+}
+
+export function listDocuments(repositoryId = ''): KnowledgeDocument[] {
+  return repositoryId
+    ? all<KnowledgeDocument>('SELECT * FROM documents WHERE repository_id=? ORDER BY path', [repositoryId])
+    : all<KnowledgeDocument>('SELECT * FROM documents ORDER BY path')
+}
+
+export function countResources(): { sources: number; documents: number } {
+  return {
+    sources: all<{ count: number }>('SELECT COUNT(*) AS count FROM sources')[0]?.count || 0,
+    documents: all<{ count: number }>('SELECT COUNT(*) AS count FROM documents')[0]?.count || 0,
+  }
+}
+
+function resourceTerms(question: string): string[] {
+  const latin = question.match(/[A-Za-z][A-Za-z0-9_+#.-]{1,}/g) || []
+  const chinese = question.match(/[一-鿿]{2,}/g) || []
+  const grams = chinese.flatMap(sequence => Array.from(
+    { length: Math.max(0, Math.min(sequence.length - 1, 8)) },
+    (_, index) => sequence.slice(index, index + 2),
+  ))
+  return [...new Set([...latin, ...grams])].filter(term => term.length >= 2).slice(0, 10)
+}
+
+function resourceSnippet(text: string, title: string, terms: string[], label: string): ResourceSnippet | null {
+  const source = (text || '').replace(/\s+/g, ' ').trim()
+  if (!source) return null
+  const lower = source.toLowerCase()
+  const hit = terms.map(term => lower.indexOf(term.toLowerCase())).find(index => index >= 0) ?? -1
+  const start = hit > 0 ? Math.max(0, hit - 500) : 0
+  const end = Math.min(source.length, start + 1400)
+  return {
+    label,
+    title,
+    content: `${start > 0 ? '…' : ''}${source.slice(start, end)}${end < source.length ? '…' : ''}`,
+  }
+}
+
+/** 从本地资料中找和问题相关的片段，供手机问答使用。 */
+export function searchResources(question: string, limit = 5): ResourceSnippet[] {
+  const terms = resourceTerms(question)
+  if (!terms.length) return []
+  const clause = terms.map(() => '(content_text LIKE ? OR title LIKE ?)').join(' OR ')
+  const params = terms.flatMap(term => [`%${term}%`, `%${term}%`])
+  const snippets: ResourceSnippet[] = []
+  const seen = new Set<string>()
+
+  try {
+    const sources = all<{ title: string; content_text: string; notebook_title: string }>(
+      `SELECT s.title,s.content_text,coalesce(n.title,'未分类') AS notebook_title
+       FROM sources s LEFT JOIN notebooks n ON n.id=s.notebook_id
+       WHERE ${clause} LIMIT 4`, params)
+    for (const source of sources) {
+      const item = resourceSnippet(source.content_text, source.title, terms, `笔记 · ${source.notebook_title}`)
+      if (item && !seen.has(item.title + item.label)) { seen.add(item.title + item.label); snippets.push(item) }
+    }
+    const documents = all<{ title: string; content_text: string; repository_name: string }>(
+      `SELECT d.title,d.content_text,coalesce(r.name,'知识库') AS repository_name
+       FROM documents d LEFT JOIN repositories r ON r.id=d.repository_id
+       WHERE ${clause} LIMIT 4`, params)
+    for (const document of documents) {
+      const item = resourceSnippet(document.content_text, document.title, terms, `知识库 · ${document.repository_name}`)
+      if (item && !seen.has(item.title + item.label)) { seen.add(item.title + item.label); snippets.push(item) }
+    }
+  } catch (error) {
+    console.error('搜索本地资料失败', error)
+  }
+  return snippets.slice(0, limit)
+}
+
 export function exportPayload(): SyncPayload {
   return {
     version: 1,
@@ -211,8 +315,43 @@ export function exportPayload(): SyncPayload {
   }
 }
 
-export function mergePayload(payload: SyncPayload): { cards: number; qa: number; interviews: number; providers: number } {
-  let cards = 0, qa = 0, interviews = 0
+export function mergePayload(payload: SyncPayload): { cards: number; qa: number; interviews: number; providers: number; resources: number } {
+  let cards = 0, qa = 0, interviews = 0, resources = 0
+  // 笔记本、笔记本资料、全局仓库和文档以电脑端为准；手机端只读展示，不回写。
+  if (Array.isArray(payload.notebooks) || Array.isArray(payload.sources)
+    || Array.isArray(payload.repositories) || Array.isArray(payload.documents)) {
+    run('DELETE FROM documents')
+    run('DELETE FROM sources')
+    run('DELETE FROM repositories')
+    run('DELETE FROM notebooks')
+    for (const notebook of payload.notebooks || []) {
+      run(`INSERT INTO notebooks(id,title,description,settings_json,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
+        [notebook.id, notebook.title, text(notebook.description), text(notebook.settings_json) || '{}', text(notebook.created_at), text(notebook.updated_at)])
+      resources++
+    }
+    for (const repository of payload.repositories || []) {
+      run(`INSERT INTO repositories(id,name,base_url,homepage,description,revision,warning,enabled,status,last_synced_at,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [repository.id, repository.name, text(repository.base_url), text(repository.homepage), text(repository.description),
+          repository.revision ?? null, repository.warning ?? null, repository.enabled ? 1 : 0, text(repository.status),
+          repository.last_synced_at ?? null, text(repository.created_at), text(repository.updated_at)])
+    }
+    for (const source of payload.sources || []) {
+      run(`INSERT INTO sources(id,notebook_id,type,title,url,content_text,metadata_json,status,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        [source.id, source.notebook_id, source.type, source.title, source.url ?? null, text(source.content_text),
+          text(source.metadata_json) || '{}', text(source.status) || 'ready', text(source.created_at), text(source.updated_at)])
+      resources++
+    }
+    for (const document of payload.documents || []) {
+      run(`INSERT INTO documents(id,repository_id,path,url,title,content_text,checksum,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)`,
+        [document.id, document.repository_id, document.path, text(document.url), document.title, text(document.content_text),
+          text(document.checksum), text(document.created_at), text(document.updated_at)])
+      resources++
+    }
+  }
+
   for (const card of payload.cards || []) {
     run(`INSERT INTO cards(id,title,brief_answer,detail_answer,tags_json,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,brief_answer=excluded.brief_answer,
@@ -255,8 +394,17 @@ export function mergePayload(payload: SyncPayload): { cards: number; qa: number;
   }
   if (payload.providers?.length) {
     setProviders(payload.providers)
+    const active = payload.activeProviderId
+      ? payload.providers.find(provider => provider.id === payload.activeProviderId)
+      : null
+    if (active?.models?.length) {
+      const preferred = payload.activeModelName && active.models.includes(payload.activeModelName)
+        ? payload.activeModelName
+        : active.models[0]
+      setSetting('activeModel', preferred)
+    }
   }
-  return { cards, qa, interviews, providers: payload.providers?.length || 0 }
+  return { cards, qa, interviews, providers: payload.providers?.length || 0, resources }
 }
 
 export function mobileNotebookId() { return MOBILE_NOTEBOOK }

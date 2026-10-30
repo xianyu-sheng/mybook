@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, MessageSquarePlus, Send } from 'lucide-react'
 import type { AiConfig } from '../App'
 import type { QaMessage, QaSession } from '../types'
-import { appendQaMessage, createQaSession, listCards, listQaMessages, listQaSessions, nowSql, renameQaSession } from '../db'
+import { appendQaMessage, createQaSession, listCards, listQaMessages, listQaSessions, nowSql, renameQaSession, searchResources } from '../db'
 import { chat } from '../ai'
 import { qaPrompt } from '../prompts'
 import Markdown from '../components/Markdown'
@@ -51,7 +51,7 @@ export default function QaPage({ config }: { config: AiConfig }) {
     try {
       if (!sessions.find(session => session.id === sessionId)) refreshSessions(sessionId)
       const answer = await chat(config.provider, config.model, [
-        { role: 'user', content: qaPrompt(listCards(), prior, question) },
+        { role: 'user', content: qaPrompt(listCards(), searchResources(question, 5), prior, question) },
       ], 6000)
       const assistant: QaMessage = {
         id: crypto.randomUUID(), session_id: sessionId, role: 'assistant', content: answer.trim(),
@@ -71,7 +71,7 @@ export default function QaPage({ config }: { config: AiConfig }) {
 
   return <div className="page">
     <section className="hero">
-      <div><span className="eyebrow">跨卡片复习</span><h2>知识问答</h2><p>回答会参考手机上的卡片；没有资料时会明确说明。</p></div>
+      <div><span className="eyebrow">跨卡片复习</span><h2>知识问答</h2><p>回答会参考手机上的卡片和已同步的资料；没有资料时会明确说明。</p></div>
       <button className="icon" title="新会话" onClick={newSession}><MessageSquarePlus size={18} /></button>
     </section>
 

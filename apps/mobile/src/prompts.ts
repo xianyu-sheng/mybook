@@ -1,4 +1,4 @@
-import type { Card, InterviewTurn, QaMessage } from './types'
+import type { Card, InterviewTurn, QaMessage, ResourceSnippet } from './types'
 
 export function cardsPrompt(topic: string, count: number): string {
   return `你是中文面试复习教练。根据下面的主题/岗位/项目，生成 ${count} 张知识卡片，输出 JSON 数组，不要 Markdown 围栏或其他文字。
@@ -11,12 +11,16 @@ export function cardsPrompt(topic: string, count: number): string {
 ${topic}`
 }
 
-export function qaPrompt(cards: Card[], messages: QaMessage[], question: string): string {
-  const context = cards.slice(0, 8).map(card => `【${card.title}】\n${card.brief_answer}\n${card.detail_answer}`).join('\n\n').slice(0, 12000)
-  const history = messages.slice(-8).map(message => `${message.role === 'user' ? '用户' : '助手'}：${message.content}`).join('\n\n').slice(-12000)
-  return `你是中文技术面试复习助手。优先结合下面的本地知识卡片回答；资料不足时明确说明是通用知识，不要编造用户经历。
-本地卡片：
-${context || '（暂无卡片）'}
+export function qaPrompt(cards: Card[], resources: ResourceSnippet[], messages: QaMessage[], question: string): string {
+  const cardContext = cards.slice(0, 8).map(card => `【${card.title}】\n${card.brief_answer}\n${card.detail_answer}`).join('\n\n').slice(0, 10000)
+  const resourceContext = resources.map(resource => `【${resource.label} / ${resource.title}】\n${resource.content}`).join('\n\n').slice(0, 9000)
+  const history = messages.slice(-8).map(message => `${message.role === 'user' ? '用户' : '助手'}：${message.content}`).join('\n\n').slice(-10000)
+  return `你是中文技术面试复习助手。优先结合下面的本地资料和知识卡片回答；资料不足时明确说明是通用知识，不要编造用户经历。
+本地资料片段：
+${resourceContext || '（这次没有检索到相关资料片段）'}
+
+本地知识卡片：
+${cardContext || '（暂无卡片）'}
 
 最近对话：
 ${history || '（新会话）'}
@@ -24,7 +28,7 @@ ${history || '（新会话）'}
 用户问题：
 ${question}
 
-请直接回答，必要时给可运行代码；如果代码是 Python，附一小段 Python 语法讲解。`
+请直接回答，必要时给可运行代码；如果代码是 Python，附一小段 Python 语法讲解。回答时如果引用了资料，请点出资料标题。`
 }
 
 export function mockStartPrompt(company: string, role: string, jd: string): string {

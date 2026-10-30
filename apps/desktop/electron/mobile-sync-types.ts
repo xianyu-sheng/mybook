@@ -7,6 +7,29 @@ export interface MobileCard {
   created_at: string; updated_at: string
 }
 
+export interface MobileNotebook {
+  id: string; title: string; description: string; settings_json: string
+  created_at: string; updated_at: string
+}
+
+/** 资料正文会一起同步到手机；手机端只读展示，不在手机里修改。 */
+export interface MobileSource {
+  id: string; notebook_id: string; type: string; title: string; url: string | null
+  content_text: string; metadata_json: string; status: string
+  created_at: string; updated_at: string
+}
+
+export interface MobileRepository {
+  id: string; name: string; base_url: string; homepage: string; description: string
+  revision: string | null; warning: string | null; enabled: number; status: string
+  last_synced_at: string | null; created_at: string; updated_at: string
+}
+
+export interface MobileDocument {
+  id: string; repository_id: string; path: string; url: string; title: string
+  content_text: string; checksum: string; created_at: string; updated_at: string
+}
+
 export interface MobileQaSession { id: string; title: string; created_at: string; updated_at: string }
 export interface MobileQaMessage {
   id: string; session_id: string; role: 'user' | 'assistant'; content: string; citations_json: string; created_at: string
@@ -29,9 +52,15 @@ export interface MobileSyncPayload {
   deviceId: string
   generatedAt: string
   cards: MobileCard[]
+  notebooks?: MobileNotebook[]
+  sources?: MobileSource[]
+  repositories?: MobileRepository[]
+  documents?: MobileDocument[]
   qaSessions: MobileQaSession[]
   qaMessages: MobileQaMessage[]
   interviewSessions: MobileInterviewSession[]
   interviewTurns: MobileInterviewTurn[]
   providers: MobileProvider[]
+  activeProviderId?: string | null
+  activeModelName?: string | null
 }
