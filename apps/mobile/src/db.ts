@@ -273,7 +273,8 @@ function resourceSnippet(text: string, title: string, terms: string[], label: st
 export function searchResources(question: string, limit = 5): ResourceSnippet[] {
   const terms = resourceTerms(question)
   if (!terms.length) return []
-  const clause = terms.map(() => '(content_text LIKE ? OR title LIKE ?)').join(' OR ')
+  const sourceClause = terms.map(() => '(s.content_text LIKE ? OR s.title LIKE ?)').join(' OR ')
+  const documentClause = terms.map(() => '(d.content_text LIKE ? OR d.title LIKE ?)').join(' OR ')
   const params = terms.flatMap(term => [`%${term}%`, `%${term}%`])
   const snippets: ResourceSnippet[] = []
   const seen = new Set<string>()
@@ -282,7 +283,7 @@ export function searchResources(question: string, limit = 5): ResourceSnippet[] 
     const sources = all<{ title: string; content_text: string; notebook_title: string }>(
       `SELECT s.title,s.content_text,coalesce(n.title,'未分类') AS notebook_title
        FROM sources s LEFT JOIN notebooks n ON n.id=s.notebook_id
-       WHERE ${clause} LIMIT 4`, params)
+       WHERE ${sourceClause} LIMIT 4`, params)
     for (const source of sources) {
       const item = resourceSnippet(source.content_text, source.title, terms, `笔记 · ${source.notebook_title}`)
       if (item && !seen.has(item.title + item.label)) { seen.add(item.title + item.label); snippets.push(item) }
@@ -290,7 +291,7 @@ export function searchResources(question: string, limit = 5): ResourceSnippet[] 
     const documents = all<{ title: string; content_text: string; repository_name: string }>(
       `SELECT d.title,d.content_text,coalesce(r.name,'知识库') AS repository_name
        FROM documents d LEFT JOIN repositories r ON r.id=d.repository_id
-       WHERE ${clause} LIMIT 4`, params)
+       WHERE ${documentClause} LIMIT 4`, params)
     for (const document of documents) {
       const item = resourceSnippet(document.content_text, document.title, terms, `知识库 · ${document.repository_name}`)
       if (item && !seen.has(item.title + item.label)) { seen.add(item.title + item.label); snippets.push(item) }
