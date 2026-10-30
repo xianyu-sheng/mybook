@@ -5,7 +5,7 @@ import type { AiConfig } from '../App'
 import type { DiscoveredDevice, Provider, SyncSettings } from '../types'
 import { countResources, deviceId, getProviders, getSetting, listCards, listInterviewSessions, listQaSessions, setProviders, setSetting } from '../db'
 import { discoverComputers } from '../discovery'
-import { ping, probeEndpoint, syncNow } from '../sync'
+import { fetchHealth, ping, probeEndpoint, syncNow } from '../sync'
 
 export default function SettingsPage({ config, onConfigChanged, onModelChanged }: {
   config: AiConfig
@@ -79,6 +79,32 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
     setScanning(true)
     setScanMessage('')
     try {
+      // 已经能测试连接的地址优先：扫描不该比“测试连接”更差。
+      // 这也绕开 Wi-Fi 广播过滤和跨 /24 的 HTTP 扫描限制。
+      const knownEndpoint = sync.endpoint.trim()
+      if (knownEndpoint) {
+        const info = await fetchHealth(knownEndpoint)
+        if (info) {
+          const normalized = /^https?:\/\//i.test(knownEndpoint) ? knownEndpoint : `http://${knownEndpoint}`
+          try {
+            const url = new URL(normalized)
+            const knownDevice: DiscoveredDevice = {
+              name: info.name || '上次连接的电脑',
+              address: url.hostname,
+              port: info.port || 47821,
+              endpoint: normalized.replace(/\/+$/, ''),
+              endpoints: [normalized.replace(/\/+$/, '')],
+              fingerprint: info.fingerprint || '',
+              reachable: true,
+            }
+            setDevices([knownDevice])
+            saveSync({ ...sync, endpoint: knownDevice.endpoint })
+            setSyncMessage(`已找到 ${knownDevice.name}（${knownDevice.endpoint}）。输入配对码后点“立即同步”。`)
+            return
+          } catch { /* ignore malformed saved endpoint */ }
+        }
+      }
+
       const found = await discoverComputers()
       // 发现只说明 UDP 通了，不代表 HTTP 47821 可达。逐个候选地址做健康检查，
       // 避免选到电脑的 WSL/虚拟网卡地址，或继续使用已经过期的旧地址。
@@ -189,16 +215,17 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
       <h3><Check size={17} /> AI 供应商</h3>
       <p className="muted small">同步电脑端配置后会自动覆盖这里；也可以手动填写。Key 只保存在手机本地。</p>
       <label>名称</label>
-      <input value={name} onChange={event => setName(event.target.value)} />
+      <input value={name || config.provider?.name || ''} onChange={event => setName(event.target.value)} />
       <label>Base URL</label>
-      <input value={baseURL} onChange={event => setBaseURL(event.target.value)} placeholder="https://api.deepseek.com" autoCapitalize="none" />
-      <label>API Key {config.provider ? '（留空表示沿用已保存的 Key）' : ''}</label>
-      <input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={config.provider ? '已保存，留空不修改' : 'sk-...'} autoCapitalize="none" />
+      <input value={baseURL || config.provider?.baseURL || ''} onChange={event => setBaseURL(event.target.value)} placeholder="https://api.deepseek.com" autoCapitalize="none" />
+      <label>API Key {config.provider ? '（已同步，留空表示不修改）' : ''}</label>
+      <input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={config.provider?.apiKey ? '************（已同步，留空不修改）' : 'sk-...'} autoCapitalize="none" />
+      {config.provider?.apiKey && <p className="muted small">API Key 已从电脑同步；这里不回显明文，留空保存不会覆盖。</p>}
       <label>模型（逗号分隔，第一个为默认）</label>
-      <input value={models} onChange={event => setModels(event.target.value)} placeholder="deepseek-flash, deepseek-v4-pro" autoCapitalize="none" />
+      <input value={models || config.provider?.models.join(', ') || ''} onChange={event => setModels(event.target.value)} placeholder="deepseek-flash, deepseek-v4-pro" autoCapitalize="none" />
       {config.provider && <div className="model-picker">
         <span>当前模型</span>
-        <select value={config.model} onChange={event => onModelChanged(event.target.value)}>
+        <select value={config.model || config.provider.models[0] || ''} onChange={event => onModelChanged(event.target.value)}>
           {config.provider.models.map(model => <option key={model} value={model}>{model}</option>)}
         </select>
       </div>}

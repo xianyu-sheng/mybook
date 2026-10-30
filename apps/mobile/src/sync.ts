@@ -88,24 +88,49 @@ async function post(url: string, body: unknown): Promise<{ status: number; data:
   }
 }
 
-/** 轻量检查某个电脑地址是否真的能建立 HTTP 连接。 */
-export async function probeEndpoint(endpoint: string): Promise<boolean> {
+export interface HealthInfo {
+  name?: string
+  fingerprint?: string
+  port?: number
+}
+
+async function parseHealth(result: { status: number; data: any }): Promise<HealthInfo | null> {
+  if (result.status < 200 || result.status >= 300) return null
+  const data = typeof result.data === 'string' ? safeJson(result.data) : result.data
+  if (!data || data.app !== 'mybook') return null
+  return {
+    name: typeof data.name === 'string' ? data.name : undefined,
+    fingerprint: typeof data.fingerprint === 'string' ? data.fingerprint : undefined,
+    port: Number(data.port) || 47821,
+  }
+}
+
+/** 读取电脑 /health，用于判断地址是否可达并取得电脑名称。 */
+export async function fetchHealth(endpoint: string): Promise<HealthInfo | null> {
   let url: string
-  try { url = `${normalizeEndpoint(endpoint)}/health` } catch { return false }
+  try { url = `${normalizeEndpoint(endpoint)}/health` } catch { return null }
   if (Capacitor.isNativePlatform()) {
     try {
       const result = await CapacitorHttp.get({ url, connectTimeout: 2500, readTimeout: 2500 })
-      if (result.status >= 200 && result.status < 300) return true
+      const info = await parseHealth(result)
+      if (info) return info
     } catch { /* try WebView fetch below */ }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(2500) })
-      return response.ok
-    } catch { return false }
+      const text = await response.text()
+      return await parseHealth({ status: response.status, data: text })
+    } catch { return null }
   }
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) })
-    return response.ok
-  } catch { return false }
+    const text = await response.text()
+    return await parseHealth({ status: response.status, data: text })
+  } catch { return null }
+}
+
+/** 轻量检查某个电脑地址是否真的能建立 HTTP 连接。 */
+export async function probeEndpoint(endpoint: string): Promise<boolean> {
+  return Boolean(await fetchHealth(endpoint))
 }
 
 function safeJson(value: string): any { try { return JSON.parse(value) } catch { return value } }
