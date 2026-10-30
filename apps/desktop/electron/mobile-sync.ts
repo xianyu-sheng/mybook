@@ -259,8 +259,19 @@ function startDiscovery() {
   state.discovery = socket
   socket.bind(DISCOVERY_PORT, '0.0.0.0', () => {
     try { socket.setBroadcast(true) } catch { /* not supported on some interfaces */ }
-    try { socket.addMembership(DISCOVERY_GROUP) } catch (error) {
-      console.warn('加入手机同步组播失败，将仅使用广播发现:', (error as Error).message)
+    // 电脑可能同时有 Wi-Fi、USB 网络共享、虚拟网卡；逐张网卡加入组播，
+    // 否则手机从 Wi-Fi/USB 发来的 discover 可能只落在默认网卡之外。
+    let joined = false
+    for (const entries of Object.values(os.networkInterfaces())) {
+      for (const entry of entries || []) {
+        if (entry.family !== 'IPv4' || entry.internal) continue
+        try { socket.addMembership(DISCOVERY_GROUP, entry.address); joined = true } catch { /* interface without multicast support */ }
+      }
+    }
+    if (!joined) {
+      try { socket.addMembership(DISCOVERY_GROUP) } catch (error) {
+        console.warn('加入手机同步组播失败，将仅使用广播发现:', (error as Error).message)
+      }
     }
   })
 }
