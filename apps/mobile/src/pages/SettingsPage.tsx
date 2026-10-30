@@ -5,7 +5,7 @@ import type { AiConfig } from '../App'
 import type { DiscoveredDevice, Provider, SyncSettings } from '../types'
 import { deviceId, getProviders, getSetting, listCards, listInterviewSessions, listQaSessions, setProviders, setSetting } from '../db'
 import { discoverComputers } from '../discovery'
-import { ping, syncNow } from '../sync'
+import { ping, probeEndpoint, syncNow } from '../sync'
 
 export default function SettingsPage({ config, onConfigChanged, onModelChanged }: {
   config: AiConfig
@@ -74,9 +74,27 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
     setScanMessage('')
     try {
       const found = await discoverComputers()
-      setDevices(found)
-      if (!found.length && showEmptyHint) {
+      // 发现只说明 UDP 通了，不代表 HTTP 47821 可达。逐个候选地址做健康检查，
+      // 避免选到电脑的 WSL/虚拟网卡地址，或继续使用已经过期的旧地址。
+      const checked = await Promise.all(found.map(async device => {
+        const candidates = [...new Set([device.endpoint, ...(device.endpoints || [])])].slice(0, 6)
+        const results = await Promise.all(candidates.map(async endpoint => ({ endpoint, ok: await probeEndpoint(endpoint) })))
+        const reachable = results.find(result => result.ok)
+        return { ...device, endpoint: reachable?.endpoint || device.endpoint, reachable: Boolean(reachable) }
+      }))
+      setDevices(checked)
+      const reachableDevices = checked.filter(device => device.reachable)
+      if (!checked.length && showEmptyHint) {
         setScanMessage('没有发现电脑。请确认电脑端已开启“手机同步”，手机和电脑连同一个 Wi-Fi/热点，并关闭 VPN。')
+      } else if (checked.length && !reachableDevices.length) {
+        setScanMessage(`扫描到 ${checked.length} 台电脑，但 HTTP 47821 端口都连不上。请关闭手机 VPN，确认 Windows 防火墙允许专用网络访问 TCP 47821；也可以改用 USB 网络共享。`)
+      } else if (reachableDevices.length === 1) {
+        const chosen = reachableDevices[0]
+        const next = { ...sync, endpoint: chosen.endpoint }
+        saveSync(next)
+        setSyncMessage(`已自动选中 ${chosen.name}（${chosen.endpoint}）。请输入电脑端显示的配对码，然后点“立即同步”。`)
+      } else if (reachableDevices.length > 1 && showEmptyHint) {
+        setScanMessage('发现多台可连接的电脑，请点选一台。')
       }
     } catch (error) {
       setScanMessage(error instanceof Error ? error.message : String(error))
@@ -94,14 +112,18 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   const chooseDevice = (device: DiscoveredDevice) => {
     const next = { ...sync, endpoint: device.endpoint }
     saveSync(next)
-    setSyncMessage(`已选择 ${device.name}，请输入电脑端显示的配对码，然后点“立即同步”。`)
+    if (device.reachable === false) {
+      setSyncMessage(`已选择 ${device.name}，但当前探测不可达。请确认手机和电脑在同一网络，关闭 VPN，或点“扫描电脑”重新检测。`)
+    } else {
+      setSyncMessage(`已选择 ${device.name}（${device.endpoint}），请输入电脑端显示的配对码，然后点“立即同步”。`)
+    }
   }
 
   const saveSync = (next: SyncSettings) => { setSync(next); setSetting('sync', next) }
 
   const test = async () => {
     setSyncBusy('test'); setSyncMessage('')
-    try { saveSync(sync); const ok = await ping(sync); setSyncMessage(ok ? '电脑端可达，可以同步' : '电脑端没有响应') }
+    try { saveSync(sync); const ok = await ping(sync); setSyncMessage(ok ? '电脑端可达，可以同步' : '电脑端没有响应：请确认手机和电脑在同一 Wi-Fi、防火墙允许 TCP 47821，或重新扫描选择电脑') }
     catch (error) { setSyncMessage(error instanceof Error ? error.message : String(error)) }
     finally { setSyncBusy('') }
   }
@@ -137,7 +159,7 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
       {devices.length > 0 && <div className="device-list">
         {devices.map(device => <button key={`${device.address}:${device.port}`} className={sync.endpoint === device.endpoint ? 'device-item active' : 'device-item'} onClick={() => chooseDevice(device)}>
           <span>
-            <strong>{device.name}</strong>
+            <strong>{device.name}{device.reachable === false ? <em className="device-state bad">不可达</em> : <em className="device-state good">可连接</em>}</strong>
             <small>{device.endpoint}</small>
           </span>
           {sync.endpoint === device.endpoint ? <Check size={16} /> : <ChevronRight size={16} />}

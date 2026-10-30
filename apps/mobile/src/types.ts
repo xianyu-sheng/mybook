@@ -82,5 +82,7 @@ export interface DiscoveredDevice {
   address: string
   port: number
   endpoint: string
+  endpoints?: string[]
   fingerprint: string
+  reachable?: boolean
 }

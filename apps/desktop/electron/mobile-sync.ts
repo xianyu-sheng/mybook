@@ -224,6 +224,17 @@ function endpoints(): string[] {
   return [...result]
 }
 
+/** 电脑可能有多张网卡；把可用 IPv4 一起告诉手机，让手机挑一个真正连得上的。 */
+function localAddresses(): string[] {
+  const result = new Set<string>()
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) result.add(entry.address)
+    }
+  }
+  return [...result]
+}
+
 function discoveryAnnouncement() {
   return {
     app: 'mybook',
@@ -234,6 +245,7 @@ function discoveryAnnouncement() {
     discoveryPort: DISCOVERY_PORT,
     protocol: 'http',
     fingerprint: fingerprint(),
+    addresses: localAddresses(),
   }
 }
 

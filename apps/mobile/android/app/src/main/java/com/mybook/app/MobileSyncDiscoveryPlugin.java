@@ -23,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -124,6 +125,22 @@ public class MobileSyncDiscoveryPlugin extends Plugin {
                 device.put("port", port);
                 device.put("endpoint", "http://" + address + ":" + port);
                 device.put("fingerprint", info.optString("fingerprint", ""));
+
+                // 电脑可能有多张网卡（Wi-Fi / USB 共享 / WSL），把候选地址一起交给
+                // JS 端做健康检查，选一个手机真正连得上的。
+                JSArray endpoints = new JSArray();
+                Set<String> seenEndpoints = new LinkedHashSet<>();
+                addEndpoint(endpoints, seenEndpoints, "http://" + address + ":" + port);
+                JSONArray addresses = info.optJSONArray("addresses");
+                if (addresses != null) {
+                    for (int index = 0; index < addresses.length(); index += 1) {
+                        String candidate = addresses.optString(index, "");
+                        if (candidate != null && candidate.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                            addEndpoint(endpoints, seenEndpoints, "http://" + candidate + ":" + port);
+                        }
+                    }
+                }
+                device.put("endpoints", endpoints);
                 found.put(key, device);
             }
 
@@ -132,6 +149,10 @@ public class MobileSyncDiscoveryPlugin extends Plugin {
             socket.close();
             if (lock != null && lock.isHeld()) lock.release();
         }
+    }
+
+    private void addEndpoint(JSArray endpoints, Set<String> seen, String endpoint) {
+        if (seen.add(endpoint)) endpoints.put(endpoint);
     }
 
     private Set<InetAddress> discoveryTargets() throws Exception {

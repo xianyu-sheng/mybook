@@ -188,3 +188,15 @@ summary { cursor: pointer; color: #93c5fd; font-size: 12px; }
   margin: 2px 0 12px;
   line-height: 1.5;
 }
+
+.device-state {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+}
+.device-state.good { color: #6ee7b7; background: #064e3b; }
+.device-state.bad { color: #fecdd3; background: #4c0519; }

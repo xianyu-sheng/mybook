@@ -45,24 +45,67 @@ async function decrypt(envelope: { salt: string; iv: string; data: string }, cod
   return JSON.parse(new TextDecoder().decode(data))
 }
 
-function syncUrl(settings: SyncSettings): string {
-  let endpoint = settings.endpoint.trim()
+function normalizeEndpoint(value: string): string {
+  let endpoint = value.trim()
   if (!endpoint) throw new Error('请先填写电脑端同步地址')
   if (!/^https?:\/\//i.test(endpoint)) endpoint = `http://${endpoint}`
-  return `${endpoint.replace(/\/+$/, '')}/sync`
+  return endpoint.replace(/\/+$/, '')
+}
+
+function syncUrl(settings: SyncSettings): string {
+  return `${normalizeEndpoint(settings.endpoint)}/sync`
+}
+
+function connectionHint(url: string): string {
+  let host = url
+  try { host = new URL(url).host } catch { /* keep raw */ }
+  return `连不上电脑（${host}）。请确认手机和电脑在同一 Wi-Fi/热点，手机 VPN 已关闭，Windows 防火墙允许 TCP 47821；也可以点“扫描电脑”重新选设备。`
+}
+
+async function webPost(url: string, body: unknown) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000),
+  })
+  return { status: response.status, data: safeJson(await response.text()) }
 }
 
 async function post(url: string, body: unknown): Promise<{ status: number; data: any }> {
-  if (Capacitor.isNativePlatform()) {
+  if (!Capacitor.isNativePlatform()) return webPost(url, body)
+  try {
     const result = await CapacitorHttp.post({
       url, data: body, headers: { 'Content-Type': 'application/json' },
       connectTimeout: 15000, readTimeout: 120000,
     })
     return { status: result.status, data: typeof result.data === 'string' ? safeJson(result.data) : result.data }
+  } catch {
+    // 某些 Android WebView/CapacitorHttp 组合会拒绝明文局域网请求；
+    // 再用 WebView fetch 走一次，服务端已允许本机/局域网来源的 CORS。
+    try { return await webPost(url, body) }
+    catch { throw new Error(connectionHint(url)) }
   }
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) })
-  const text = await response.text()
-  return { status: response.status, data: safeJson(text) }
+}
+
+/** 轻量检查某个电脑地址是否真的能建立 HTTP 连接。 */
+export async function probeEndpoint(endpoint: string): Promise<boolean> {
+  let url: string
+  try { url = `${normalizeEndpoint(endpoint)}/health` } catch { return false }
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const result = await CapacitorHttp.get({ url, connectTimeout: 2500, readTimeout: 2500 })
+      if (result.status >= 200 && result.status < 300) return true
+    } catch { /* try WebView fetch below */ }
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(2500) })
+      return response.ok
+    } catch { return false }
+  }
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2500) })
+    return response.ok
+  } catch { return false }
 }
 
 function safeJson(value: string): any { try { return JSON.parse(value) } catch { return value } }
@@ -88,14 +131,6 @@ export async function syncNow(settings: SyncSettings): Promise<{ ok: boolean; me
 }
 
 export async function ping(settings: SyncSettings): Promise<boolean> {
-  let endpoint = settings.endpoint.trim()
-  if (!endpoint) throw new Error('请先填写电脑端同步地址')
-  if (!/^https?:\/\//i.test(endpoint)) endpoint = `http://${endpoint}`
-  const url = `${endpoint.replace(/\/+$/, '')}/health`
-  if (Capacitor.isNativePlatform()) {
-    const result = await CapacitorHttp.get({ url, connectTimeout: 8000, readTimeout: 8000 })
-    return result.status >= 200 && result.status < 300
-  }
-  const response = await fetch(url, { signal: AbortSignal.timeout(8000) })
-  return response.ok
+  if (!settings.endpoint.trim()) throw new Error('请先填写电脑端同步地址')
+  return probeEndpoint(settings.endpoint)
 }
