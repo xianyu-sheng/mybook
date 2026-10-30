@@ -55,7 +55,7 @@ export default function SettingsPage() {
   const [壁纸地址, set壁纸地址] = useState<string | null>(null)
   const [壁纸来源, set壁纸来源] = useState<string | null>(null)
   const [外观模式, set外观模式] = useState<'off' | 'soft' | 'vivid'>('soft')
-  const [手机同步, set手机同步] = useState<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] } | null>(null)
+  const [手机同步, set手机同步] = useState<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[]; discoveryRunning: boolean; discoveryPort: number; name: string; fingerprint: string } | null>(null)
   const [同步操作, set同步操作] = useState('')
   const [同步提示, set同步提示] = useState('')
 
@@ -131,7 +131,7 @@ export default function SettingsPage() {
     try {
       const next = 手机同步.running ? await window.knowmind.mobileSync.stop() : await window.knowmind.mobileSync.start()
       set手机同步(next)
-      set同步提示(next.running ? '电脑端同步已开启，手机通过 USB 网络共享连接下面的地址。' : '电脑端同步已关闭。')
+      set同步提示(next.running ? '电脑端同步已开启：手机和电脑连同一个 Wi-Fi/热点，在手机端点“扫描电脑”即可自动发现。' : '电脑端同步已关闭。')
     } catch (err: any) {
       set同步提示('开启失败：' + (err.message || String(err)))
     } finally { set同步操作('') }
@@ -581,8 +581,9 @@ export default function SettingsPage() {
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Smartphone className="w-4 h-4" />手机同步</h2>
         <p className="text-sm text-zinc-500 mb-3">
-          手机 Mybook 通过 USB 网络共享直连电脑；数据在本地加密封包，不经过第三方服务器。
-          开启后，在手机设置里填写下面的地址和配对码，即可同步卡片、问答和文字模拟面试。
+          手机 Mybook 和电脑连同一个 Wi-Fi / 手机热点即可自动发现；也支持 USB 网络共享。
+          数据在本地加密封包，不经过第三方服务器。开启后，在手机“设置 → 与电脑同步”里点“扫描电脑”，
+          选中本机并输入配对码，即可同步卡片、问答和文字模拟面试。
         </p>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button onClick={() => void 切换手机同步()} disabled={Boolean(同步操作)}
@@ -595,6 +596,7 @@ export default function SettingsPage() {
             <RefreshCw className="w-3.5 h-3.5" />重新生成配对码
           </button>
           {手机同步 && <span className={`text-xs ${手机同步.running ? 'text-emerald-600' : 'text-zinc-500'}`}>{手机同步.running ? `运行中 · 端口 ${手机同步.port}` : '未开启'}</span>}
+          {手机同步?.running && <span className={`text-xs ${手机同步.discoveryRunning ? 'text-emerald-600' : 'text-amber-600'}`}>{手机同步.discoveryRunning ? `自动发现已开启 · UDP ${手机同步.discoveryPort}` : '自动发现未启动'}</span>}
         </div>
         {手机同步?.running && <>
           <div className="grid gap-2">
@@ -613,7 +615,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-          <p className="text-xs text-zinc-500 mt-2">首次开启可能弹出 Windows 防火墙提示，请允许专用网络访问；手机需开启“USB 网络共享”。</p>
+          <p className="text-xs text-zinc-500 mt-2">首次开启可能弹出 Windows 防火墙提示，请允许“专用网络”访问 UDP 47822 和 TCP 47821。扫描不到时，确认手机和电脑在同一 Wi-Fi/热点、关闭 VPN，或改用 USB 网络共享并手动填写地址。</p>
         </>}
         {同步提示 && <p role="status" className="text-xs text-amber-700 mt-2 whitespace-pre-wrap break-words">{同步提示}</p>}
       </section>

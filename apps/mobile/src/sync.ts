@@ -71,7 +71,12 @@ export async function syncNow(settings: SyncSettings): Promise<{ ok: boolean; me
   if (!settings.code.trim()) throw new Error('请先填写电脑端显示的配对码')
   const payload = exportPayload()
   const encrypted = await encrypt(payload, settings.code.trim())
-  const result = await post(syncUrl(settings), encrypted)
+  // ts/requestId 让电脑端拒绝过期请求和重复重放；旧版电脑端会忽略这两个字段。
+  const result = await post(syncUrl(settings), {
+    ...encrypted,
+    ts: Date.now(),
+    requestId: crypto.randomUUID(),
+  })
   if (result.status < 200 || result.status >= 300) {
     const message = result.data?.error || result.data?.message || `HTTP ${result.status}`
     throw new Error(`同步失败：${String(message).slice(0, 300)}`)

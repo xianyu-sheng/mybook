@@ -76,3 +76,11 @@ export interface SyncSettings {
 }
 
 export type Tab = 'cards' | 'qa' | 'interview' | 'settings'
+
+export interface DiscoveredDevice {
+  name: string
+  address: string
+  port: number
+  endpoint: string
+  fingerprint: string
+}

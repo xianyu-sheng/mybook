@@ -1,20 +1,42 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
+import { createSocket, type Socket as UdpSocket } from 'node:dgram'
 import { createServer, type Server } from 'node:http'
 import os from 'node:os'
 import type Database from 'better-sqlite3'
 import { getDb } from './db/connection.js'
+import { isPrivateAddress } from './mobile-sync-address.js'
 import { MOBILE_NOTEBOOK_ID, type MobileSyncPayload } from './mobile-sync-types.js'
 
 const PORT = 47821
+const DISCOVERY_PORT = 47822
+const DISCOVERY_GROUP = '224.0.0.167'
 const ITERATIONS = 120000
+const MAX_PAIRING_FAILURES = 5
+const PAIRING_WINDOW_MS = 60_000
+const MAX_CLOCK_SKEW_MS = 5 * 60_000
 
 interface Envelope { v: 1; salt: string; iv: string; data: string }
 interface MobileSyncState {
   server: Server | null
+  discovery: UdpSocket | null
   enabled: boolean
 }
 
-const state: MobileSyncState = { server: null, enabled: false }
+export interface MobileSyncStatus {
+  enabled: boolean
+  running: boolean
+  port: number
+  code: string
+  endpoints: string[]
+  discoveryRunning: boolean
+  discoveryPort: number
+  name: string
+  fingerprint: string
+}
+
+const state: MobileSyncState = { server: null, discovery: null, enabled: false }
+const pairingFailures = new Map<string, { count: number; resetAt: number }>()
+const recentRequests = new Map<string, number>()
 
 function setting(key: string): unknown {
   const row = getDb().prepare('SELECT value_json FROM settings WHERE key=?').get(key) as { value_json: string } | undefined
@@ -30,6 +52,55 @@ function saveSetting(key: string, value: unknown) {
 function makeCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   return Array.from(randomBytes(12), byte => alphabet[byte % alphabet.length]).join('')
+}
+
+function fingerprint(): string {
+  const existing = setting('mobileSyncFingerprint')
+  if (typeof existing === 'string' && /^[a-f0-9]{32,64}$/i.test(existing)) return existing
+  const next = randomBytes(24).toString('hex')
+  saveSetting('mobileSyncFingerprint', next)
+  return next
+}
+
+function syncName(): string {
+  return `Mybook · ${os.hostname()}`
+}
+
+function remoteAddress(request: import('node:http').IncomingMessage): string {
+  return (request.socket.remoteAddress || '').replace(/^::ffff:/i, '')
+}
+
+function pairingAllowed(address: string): boolean {
+  const entry = pairingFailures.get(address)
+  if (!entry) return true
+  if (Date.now() >= entry.resetAt) { pairingFailures.delete(address); return true }
+  return entry.count < MAX_PAIRING_FAILURES
+}
+
+function recordPairingFailure(address: string) {
+  const now = Date.now()
+  const entry = pairingFailures.get(address)
+  if (!entry || now >= entry.resetAt) pairingFailures.set(address, { count: 1, resetAt: now + PAIRING_WINDOW_MS })
+  else entry.count += 1
+}
+
+function clearPairingFailures(address: string) { pairingFailures.delete(address) }
+
+function validateFreshness(body: any) {
+  if (body?.ts !== undefined) {
+    if (typeof body.ts !== 'number' || Math.abs(Date.now() - body.ts) > MAX_CLOCK_SKEW_MS) {
+      throw new Error('同步请求已过期，请检查两台设备的时间')
+    }
+  }
+  if (body?.requestId !== undefined) {
+    if (typeof body.requestId !== 'string' || !/^[A-Za-z0-9-]{8,80}$/.test(body.requestId)) {
+      throw new Error('同步请求标识不正确')
+    }
+    const now = Date.now()
+    for (const [id, at] of recentRequests) if (now - at > MAX_CLOCK_SKEW_MS) recentRequests.delete(id)
+    if (recentRequests.has(body.requestId)) throw new Error('同步请求已处理，请重试')
+    recentRequests.set(body.requestId, now)
+  }
 }
 
 function code(): string {
@@ -153,6 +224,53 @@ function endpoints(): string[] {
   return [...result]
 }
 
+function discoveryAnnouncement() {
+  return {
+    app: 'mybook',
+    type: 'announce',
+    version: 1,
+    name: syncName(),
+    port: PORT,
+    discoveryPort: DISCOVERY_PORT,
+    protocol: 'http',
+    fingerprint: fingerprint(),
+  }
+}
+
+function startDiscovery() {
+  if (state.discovery) return
+  const socket = createSocket({ type: 'udp4', reuseAddr: true })
+  socket.on('error', error => {
+    console.error('手机同步自动发现失败:', error.message)
+    if (state.discovery === socket) state.discovery = null
+    try { socket.close() } catch { /* already closed */ }
+  })
+  socket.on('message', (message, rinfo) => {
+    if (message.length > 2048 || !isPrivateAddress(rinfo.address)) return
+    try {
+      const request = JSON.parse(message.toString('utf8'))
+      if (request?.app !== 'mybook' || request?.type !== 'discover') return
+      const reply = Buffer.from(JSON.stringify(discoveryAnnouncement()), 'utf8')
+      socket.send(reply, rinfo.port, rinfo.address, error => {
+        if (error) console.error('发送自动发现响应失败:', error.message)
+      })
+    } catch { /* ignore malformed discovery packets */ }
+  })
+  state.discovery = socket
+  socket.bind(DISCOVERY_PORT, '0.0.0.0', () => {
+    try { socket.setBroadcast(true) } catch { /* not supported on some interfaces */ }
+    try { socket.addMembership(DISCOVERY_GROUP) } catch (error) {
+      console.warn('加入手机同步组播失败，将仅使用广播发现:', (error as Error).message)
+    }
+  })
+}
+
+function stopDiscovery() {
+  if (!state.discovery) return
+  try { state.discovery.close() } catch { /* already closed */ }
+  state.discovery = null
+}
+
 function readBody(request: import('node:http').IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0
@@ -167,13 +285,19 @@ function readBody(request: import('node:http').IncomingMessage): Promise<string>
   })
 }
 
-function cors(response: import('node:http').ServerResponse) {
-  response.setHeader('Access-Control-Allow-Origin', '*')
+function cors(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) {
+  const origin = request.headers.origin
+  if (!origin) return
+  const allowed = /^(https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|capacitor:\/\/localhost|ionic:\/\/localhost)$/i.test(origin)
+    || /^https?:\/\/(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/i.test(origin)
+  if (!allowed) return
+  response.setHeader('Access-Control-Allow-Origin', origin)
+  response.setHeader('Vary', 'Origin')
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
 }
 
-export function mobileSyncStatus() {
+export function mobileSyncStatus(): MobileSyncStatus {
   const current = code()
   return {
     enabled: Boolean(setting('mobileSyncEnabled')) || state.enabled,
@@ -181,35 +305,56 @@ export function mobileSyncStatus() {
     port: PORT,
     code: current,
     endpoints: endpoints(),
+    discoveryRunning: Boolean(state.discovery),
+    discoveryPort: DISCOVERY_PORT,
+    name: syncName(),
+    fingerprint: fingerprint(),
   }
 }
 
 export async function startMobileSync() {
-  if (state.server) return mobileSyncStatus()
+  if (state.server) {
+    if (!state.discovery) startDiscovery()
+    return mobileSyncStatus()
+  }
   if (!state.enabled) {
     state.enabled = true
     saveSetting('mobileSyncEnabled', true)
   }
   const db = getDb()
   const server = createServer(async (request, response) => {
-    cors(response)
+    cors(request, response)
     if (request.method === 'OPTIONS') { response.writeHead(204).end(); return }
+    const address = remoteAddress(request)
+    if (!isPrivateAddress(address)) {
+      response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ error: '只允许局域网设备访问' }))
+      return
+    }
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
       response.end(JSON.stringify({ app: 'mybook', version: 1, name: 'Mybook' }))
       return
     }
     if (request.method === 'POST' && request.url === '/sync') {
+      if (!pairingAllowed(address)) {
+        response.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': '60' })
+        response.end(JSON.stringify({ error: '配对码错误次数过多，请 1 分钟后再试' }))
+        return
+      }
       try {
-        const body = JSON.parse(await readBody(request)) as Envelope
+        const body = JSON.parse(await readBody(request)) as Envelope & { ts?: number; requestId?: string }
+        validateFreshness(body)
         const pairing = code()
         const incoming = decrypt(body, pairing) as MobileSyncPayload
         if (!incoming || incoming.version !== 1) throw new Error('同步数据版本不兼容')
         db.transaction(() => merge(db, incoming))()
+        clearPairingFailures(address)
         const reply = encrypt(pcSnapshot(), pairing)
         response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         response.end(JSON.stringify(reply))
       } catch (error) {
+        recordPairingFailure(address)
         response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' })
         response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
       }
@@ -223,10 +368,12 @@ export async function startMobileSync() {
     server.listen(PORT, '0.0.0.0', () => resolve())
   })
   state.server = server
+  startDiscovery()
   return mobileSyncStatus()
 }
 
 export async function stopMobileSync() {
+  stopDiscovery()
   if (state.server) {
     await new Promise<void>(resolve => state.server!.close(() => resolve()))
     state.server = null
@@ -246,5 +393,6 @@ export async function restoreMobileSync() {
 }
 
 export function shutdownMobileSync() {
+  stopDiscovery()
   if (state.server) { state.server.close(); state.server = null }
 }

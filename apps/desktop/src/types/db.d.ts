@@ -141,10 +141,10 @@ export interface KnowMindApi {
   }
 
   mobileSync: {
-    status: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
-    start: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
-    stop: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
-    regenerate: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[] }>
+    status: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[]; discoveryRunning: boolean; discoveryPort: number; name: string; fingerprint: string }>
+    start: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[]; discoveryRunning: boolean; discoveryPort: number; name: string; fingerprint: string }>
+    stop: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[]; discoveryRunning: boolean; discoveryPort: number; name: string; fingerprint: string }>
+    regenerate: () => Promise<{ enabled: boolean; running: boolean; port: number; code: string; endpoints: string[]; discoveryRunning: boolean; discoveryPort: number; name: string; fingerprint: string }>
   }
 
   notebooks: {

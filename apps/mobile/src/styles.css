@@ -132,3 +132,59 @@ summary { cursor: pointer; color: #93c5fd; font-size: 12px; }
   .app-main { padding-top: 10px; }
   .app-header { max-width: 760px; margin: 0 auto; width: 100%; }
 }
+
+.device-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.device-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.device-item.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+}
+
+.device-item span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.device-item strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-item small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-item svg {
+  flex: none;
+  color: var(--primary);
+}
+
+.scan-message {
+  margin: 2px 0 12px;
+  line-height: 1.5;
+}

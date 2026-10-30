@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Check, CloudDownload, Loader2, RefreshCw, Wifi } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
+import { Check, ChevronRight, CloudDownload, Loader2, RefreshCw, Wifi } from 'lucide-react'
 import type { AiConfig } from '../App'
-import type { Provider, SyncSettings } from '../types'
+import type { DiscoveredDevice, Provider, SyncSettings } from '../types'
 import { deviceId, getProviders, getSetting, listCards, listInterviewSessions, listQaSessions, setProviders, setSetting } from '../db'
+import { discoverComputers } from '../discovery'
 import { ping, syncNow } from '../sync'
 
 export default function SettingsPage({ config, onConfigChanged, onModelChanged }: {
@@ -18,6 +20,9 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   const [sync, setSync] = useState<SyncSettings>({ endpoint: '', code: '', deviceId: deviceId() })
   const [syncBusy, setSyncBusy] = useState('')
   const [syncMessage, setSyncMessage] = useState('')
+  const [devices, setDevices] = useState<DiscoveredDevice[]>([])
+  const [scanning, setScanning] = useState(false)
+  const [scanMessage, setScanMessage] = useState('')
   const [counts, setCounts] = useState({ cards: 0, qa: 0, interviews: 0 })
 
   const refreshCounts = () => setCounts({
@@ -60,6 +65,38 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
     onModelChanged(modelList[0])
   }
 
+  const scan = async (showEmptyHint = true) => {
+    if (!Capacitor.isNativePlatform()) {
+      setScanMessage('自动发现仅支持手机 App；开发环境请手动填写电脑地址。')
+      return
+    }
+    setScanning(true)
+    setScanMessage('')
+    try {
+      const found = await discoverComputers()
+      setDevices(found)
+      if (!found.length && showEmptyHint) {
+        setScanMessage('没有发现电脑。请确认电脑端已开启“手机同步”，手机和电脑连同一个 Wi-Fi/热点，并关闭 VPN。')
+      }
+    } catch (error) {
+      setScanMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) void scan(false)
+    // 只在本页首次打开时扫描一次，避免反复弹出扫描。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const chooseDevice = (device: DiscoveredDevice) => {
+    const next = { ...sync, endpoint: device.endpoint }
+    saveSync(next)
+    setSyncMessage(`已选择 ${device.name}，请输入电脑端显示的配对码，然后点“立即同步”。`)
+  }
+
   const saveSync = (next: SyncSettings) => { setSync(next); setSetting('sync', next) }
 
   const test = async () => {
@@ -89,9 +126,26 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
 
     <section className="panel compose">
       <h3><CloudDownload size={17} /> 与电脑同步</h3>
-      <p className="muted small">电脑端 Mybook → 设置 → 手机同步，开启后显示地址和配对码。数据通过 USB 网络共享直连电脑，不经过第三方服务器。</p>
+      <p className="muted small">电脑端 Mybook → 设置 → 手机同步，开启后手机和电脑连同一个 Wi-Fi/热点，点“扫描电脑”自动填入地址；也支持 USB 网络共享。配对码只用于解密同步包，不会在局域网广播。</p>
+      <div className="row">
+        <button className="secondary" disabled={scanning || Boolean(syncBusy)} onClick={() => void scan()}>
+          {scanning ? <Loader2 className="spin" size={15} /> : <Wifi size={15} />}
+          {scanning ? '正在扫描…' : '扫描电脑'}
+        </button>
+        {devices.length > 0 && <span className="muted small">发现 {devices.length} 台电脑</span>}
+      </div>
+      {devices.length > 0 && <div className="device-list">
+        {devices.map(device => <button key={`${device.address}:${device.port}`} className={sync.endpoint === device.endpoint ? 'device-item active' : 'device-item'} onClick={() => chooseDevice(device)}>
+          <span>
+            <strong>{device.name}</strong>
+            <small>{device.endpoint}</small>
+          </span>
+          {sync.endpoint === device.endpoint ? <Check size={16} /> : <ChevronRight size={16} />}
+        </button>)}
+      </div>}
+      {scanMessage && <p className="muted small scan-message">{scanMessage}</p>}
       <label>电脑端地址</label>
-      <input value={sync.endpoint} onChange={event => setSync({ ...sync, endpoint: event.target.value })} placeholder="http://192.168.42.1:47821" autoCapitalize="none" />
+      <input value={sync.endpoint} onChange={event => setSync({ ...sync, endpoint: event.target.value })} placeholder="http://192.168.1.10:47821" autoCapitalize="none" />
       <label>配对码</label>
       <input value={sync.code} onChange={event => setSync({ ...sync, code: event.target.value })} placeholder="电脑端显示的配对码" autoCapitalize="none" />
       <div className="row">
