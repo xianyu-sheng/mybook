@@ -18,6 +18,7 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   const [models, setModels] = useState(config.provider?.models.join(', ') || 'deepseek-flash, deepseek-v4-pro')
   const [reason, setReason] = useState('')
   const [sync, setSync] = useState<SyncSettings>({ endpoint: '', code: '', deviceId: deviceId() })
+  const [syncLoaded, setSyncLoaded] = useState(false)
   const [syncBusy, setSyncBusy] = useState('')
   const [syncMessage, setSyncMessage] = useState('')
   const [devices, setDevices] = useState<DiscoveredDevice[]>([])
@@ -32,6 +33,7 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   useEffect(() => {
     const saved = getSetting<SyncSettings>('sync', { endpoint: '', code: '', deviceId: deviceId() })
     setSync({ ...saved, deviceId: saved.deviceId || deviceId() })
+    setSyncLoaded(true)
     refreshCounts()
   }, [])
 
@@ -104,10 +106,11 @@ export default function SettingsPage({ config, onConfigChanged, onModelChanged }
   }
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform()) void scan(false)
+    // 等本地保存的配对码读完再自动扫描，避免自动选中时把已保存的 code 覆盖成空。
+    if (syncLoaded && Capacitor.isNativePlatform()) void scan(false)
     // 只在本页首次打开时扫描一次，避免反复弹出扫描。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [syncLoaded])
 
   const chooseDevice = (device: DiscoveredDevice) => {
     const next = { ...sync, endpoint: device.endpoint }
